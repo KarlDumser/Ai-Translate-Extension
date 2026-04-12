@@ -140,6 +140,8 @@
   let chatHistory  = [];   // pro Wort neu
   let isDragging   = false;
   let cardFromSelection = false;
+  let suppressSelectionAfterManualClose = false;
+  let suppressedSelectionText = '';
   let extensionContextDead = false;
 
   // Settings laden beim Start (ohne zu warten - async)
@@ -179,16 +181,29 @@
   });
 
   // ── Markiertes Wort erkennen (Linksklick) ──────────────────────
-  document.addEventListener('mouseup', () => {
+  document.addEventListener('mouseup', e => {
     if (extensionContextDead || !extensionEnabled) return;
+    if (card && card.contains(e.target)) return;
+
     const sel = window.getSelection();
     if (!sel || sel.toString().trim() === '') {
       removeSelectionButton();
+      suppressSelectionAfterManualClose = false;
+      suppressedSelectionText = '';
       return;
     }
 
     const selectedText = sel.toString().trim();
     if (!selectedText) return;
+
+    if (suppressSelectionAfterManualClose) {
+      if (selectedText === suppressedSelectionText) {
+        dbg(`selection suppressed after close: ${selectedText}`);
+        return;
+      }
+      suppressSelectionAfterManualClose = false;
+      suppressedSelectionText = '';
+    }
 
     try {
       const range = sel.getRangeAt(0);
@@ -780,7 +795,14 @@
     closeTimer = setTimeout(() => { if (!cardHovered) closeCard(); }, CLOSE_DELAY);
   }
   function cancelClose()  { clearTimeout(closeTimer); }
-  function forceClose()   { cancelClose(); closeCard(); }
+  function forceClose() {
+    cancelClose();
+    if (cardFromSelection && currentWord) {
+      suppressSelectionAfterManualClose = true;
+      suppressedSelectionText = currentWord;
+    }
+    closeCard();
+  }
 
   function closeCard() {
     if (card) { card.remove(); card = null; }
