@@ -138,6 +138,8 @@
   let cardHovered  = false;
   let lastX = 0, lastY = 0;
   let chatHistory  = [];   // pro Wort neu
+  let isDragging   = false;
+  let cardFromSelection = false;
   let extensionContextDead = false;
 
   // Settings laden beim Start (ohne zu warten - async)
@@ -160,7 +162,8 @@
   document.addEventListener('mousemove', e => {
     if (extensionContextDead) return;
     if (!extensionEnabled) return;
-    if (translationMode === 'select') return;
+    if (translationMode === 'select' || translationMode === 'auto-select') return;
+    if (isDragging) return;
     if (card && card.contains(e.target)) return;
     lastX = e.clientX;
     lastY = e.clientY;
@@ -266,26 +269,8 @@
     btn.onclick = e => {
       e.preventDefault();
       e.stopPropagation();
-      currentWord = text;
-      currentHoverKey = `selection:${text}`;
-      chatHistory = [];
-      
       removeSelectionButton();
-      openCard(rect.left + rect.width / 2, rect.top, text);
-      
-      void sendRuntimeMessage({
-        type: 'lookup',
-        word: text,
-        focusIndex: 0,
-        scriptType,
-        targetLanguage,
-      }).then(data => fillCard(data)).catch(err => {
-        if (isContextInvalidatedError(err)) {
-          handleInvalidatedContext();
-          return;
-        }
-        fillCard({ error: err?.message || String(err) });
-      });
+      void processSelection(text, rect, range, scriptType);
     };
 
     document.body.appendChild(btn);
@@ -329,14 +314,15 @@
       dbg(`hover hit: ${word} (${scriptType})`);
       const hoverKey = `${word}:${focusIndex}`;
       if (hoverKey === currentHoverKey) return;
+      if (card && cardFromSelection) return;
 
       cancelClose();
+      applyHighlight(range);
+      openCard(x, y, word);
       currentWord = word;
       currentHoverKey = hoverKey;
       chatHistory  = [];
-
-      applyHighlight(range);
-      openCard(x, y, word);
+      cardFromSelection = false;
 
       const data = await sendRuntimeMessage({ type: 'lookup', word, focusIndex, scriptType, targetLanguage });
       dbg(`lookup ok: ${word}`);
@@ -357,12 +343,12 @@
       if (extensionContextDead || !extensionEnabled) return;
 
       cancelClose();
+      applyHighlight(range);
+      openCard(rect.left + rect.width / 2, rect.top, text);
       currentWord = text;
       currentHoverKey = `selection:${text}`;
       chatHistory = [];
-
-      applyHighlight(range);
-      openCard(rect.left + rect.width / 2, rect.top, text);
+      cardFromSelection = true;
 
       const data = await sendRuntimeMessage({
         type: 'lookup',
@@ -522,8 +508,46 @@
     requestAnimationFrame(() => { if (card) card.style.opacity = '1'; });
 
     card.addEventListener('mouseenter', () => { cardHovered = true;  cancelClose(); });
-    card.addEventListener('mouseleave', () => { cardHovered = false; scheduleClose(); });
+    card.addEventListener('mouseleave', () => { if (isDragging) return; cardHovered = false; scheduleClose(); });
     card.querySelector('#jpde-close').addEventListener('click', forceClose);
+
+    // ── Drag-to-move ────────────────────────────────────────────
+    const header = card.querySelector('#jpde-header');
+    if (header) {
+      header.addEventListener('mousedown', e => {
+        if (e.button !== 0) return;
+        isDragging = true;
+        cardHovered = true;
+        cancelClose();
+        const r = card.getBoundingClientRect();
+        const dragOffX = e.clientX - r.left;
+        const dragOffY = e.clientY - r.top;
+        e.preventDefault();
+        header.style.cursor = 'grabbing';
+
+        const onDragMove = ev => {
+          if (!isDragging || !card) return;
+          clearTimeout(hoverTimer);
+          const GAP = 8;
+          const vw = window.innerWidth;
+          const vh = window.innerHeight;
+          let left = ev.clientX - dragOffX;
+          let top  = ev.clientY - dragOffY;
+          left = Math.max(GAP, Math.min(left, vw - card.offsetWidth  - GAP));
+          top  = Math.max(GAP, Math.min(top,  vh - card.offsetHeight - GAP));
+          card.style.left = left + 'px';
+          card.style.top  = top  + 'px';
+        };
+        const onDragEnd = () => {
+          isDragging = false;
+          if (header) header.style.cursor = 'move';
+          document.removeEventListener('mousemove', onDragMove);
+          document.removeEventListener('mouseup',   onDragEnd);
+        };
+        document.addEventListener('mousemove', onDragMove);
+        document.addEventListener('mouseup',   onDragEnd);
+      });
+    }
 
     const input = card.querySelector('#jpde-input');
     const btn   = card.querySelector('#jpde-send');
@@ -536,8 +560,9 @@
 
   function buildShellHTML() {
     return `
-      <div style="padding:12px 14px 10px;border-bottom:1px solid #313244;
-                  display:flex;align-items:center;justify-content:space-between;gap:8px;">
+      <div id="jpde-header" style="padding:12px 14px 10px;border-bottom:1px solid #313244;
+                  display:flex;align-items:center;justify-content:space-between;gap:8px;
+                  cursor:move;user-select:none;">
         <span id="jpde-word" style="font-size:24px;font-weight:700;color:#cba6f7;
                      letter-spacing:0.05em;opacity:0.75;">…</span>
         <button id="jpde-close" style="all:unset;cursor:pointer;color:#585b70;
@@ -763,6 +788,7 @@
     currentWord  = null;
     currentHoverKey = null;
     chatHistory  = [];
+    cardFromSelection = false;
   }
 
   // ── Hilfsfunktionen ────────────────────────────────────────────
