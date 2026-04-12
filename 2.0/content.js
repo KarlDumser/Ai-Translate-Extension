@@ -381,7 +381,7 @@
     }
 
     // FALLBACK: Deutsch/Englisch-Modus (nur für Latin-Text)
-    if (sourceLanguage === 'de' || sourceLanguage === 'en') {
+    if (sourceLanguage === 'de' || sourceLanguage === 'en' || sourceLanguage === 'auto') {
       let latinCenter = rawOff;
       if (latinCenter > 0 && !isWordChar(text[latinCenter]) && isWordChar(text[latinCenter - 1])) {
         latinCenter = rawOff - 1;
@@ -758,8 +758,7 @@
   function isContextInvalidatedError(err) {
     const msg = String(err?.message || err || '').toLowerCase();
     return msg.includes('extension context invalidated') ||
-           msg.includes('context invalidated') ||
-           msg.includes('receiving end does not exist');
+           msg.includes('context invalidated');
   }
 
   function handleInvalidatedContext() {

@@ -59,12 +59,14 @@ async function lookupWord(word, focusIndex, scriptType, targetLanguage) {
   const target = targetLanguage || 'en';
   
   if (sourceLanguage === 'auto') {
-    // Auto-Erkennung: nur mit OpenAI API möglich
-    if (!apiKey) {
-      return { found: false, error: 'Auto-detection needs OpenAI API key' };
+    // Auto-Erkennung: mit OpenAI, sonst Heuristik-Fallback
+    let detectedLang = 'en';
+    if (apiKey) {
+      detectedLang = await detectLanguage(word, apiKey);
+    } else {
+      const hasJapanese = /[\u3040-\u30ff\u3400-\u9faf]/.test(word);
+      detectedLang = hasJapanese ? 'ja' : 'en';
     }
-    // Sprache erkennen via OpenAI
-    const detectedLang = await detectLanguage(word, apiKey);
     return await lookupTranslation(word, detectedLang, target);
   }
   
