@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: #1e1e2e;
+      color: #cdd6f4;
+      padding: 16px 18px 18px;
+      width: 260px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    h2 {
+      font-size: 15px;
+      color: #cba6f7;
+      margin-bottom: 8px;
+    }
+
+    p { color: #a6adc8; margin-bottom: 8px; }
+
+    .tip {
+      background: #313244;
+      border-radius: 7px;
+      padding: 8px 10px;
+      font-size: 12px;
+      color: #89b4fa;
+      margin-bottom: 8px;
+    }
+
+    .kbd {
+      display: inline-block;
+      background: #45475a;
+      color: #cdd6f4;
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-size: 11px;
+      font-family: monospace;
+    }
+
+    button {
+      background: #313244;
+      color: #cba6f7;
+      border: 1px solid #45475a;
+      border-radius: 7px;
+      padding: 6px 12px;
+      font-size: 12px;
+      cursor: pointer;
+      width: 100%;
+      margin-top: 6px;
+      transition: background 0.1s;
+    }
+    button:hover { background: #45475a; }
+
+    #status {
+      margin-top: 8px;
+      font-size: 12px;
+      color: #a6e3a1;
+      text-align: center;
+      min-height: 16px;
+    }
+  </style>
+</head>
+<body>
+  <h2>JPN-DE Hover Dictionary</h2>
+  <p>Hover einfach über ein japanisches Wort auf einer beliebigen Webseite.</p>
+
+  <div class="tip">
+    💡 Die Karte erscheint automatisch — kein Klicken nötig!
+  </div>
+
+  <p id="key-status" style="font-size:12px; color:#585b70;">Prüfe API-Keys…</p>
+
+  <button id="options-btn">⚙ Einstellungen öffnen</button>
+  <div id="status"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+{
+    "manifest_version": 3,
+    "name": "Quick-Translate (ChatGPT)",
+    "description": "Übersetzt markierten Text per ChatGPT.",
+    "version": "0.2",
+    "permissions": [
+      "storage",
+      "activeTab",
+      "scripting"
+    ],
+    "host_permissions": [
+      "https://api.openai.com/*"
+    ],
+    "background": {
+      "service_worker": "background.js"
+    },
+    "content_scripts": [
+      {
+        "matches": ["<all_urls>"],
+        "js": ["content.js"]
+      }
+    ],
+    "action": {
+      "default_icon": {
+        "16": "icons/16.png",
+        "48": "icons/48.png",
+        "128": "icons/128.png"
+      },
+      "default_popup": "popup.html"
+    },
+    "options_ui": {
+      "page": "options.html",
+      "open_in_tab": false
+    }
+  }
