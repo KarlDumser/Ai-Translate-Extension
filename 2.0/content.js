@@ -60,9 +60,15 @@
     applyHighlight(range);
     openCard(x, y, word);
 
-    chrome.runtime.sendMessage({ type: 'lookup', word })
-      .then(data  => fillCard(data))
-      .catch(err  => fillCard({ error: err.message }));
+    sendRuntimeMessage({ type: 'lookup', word })
+      .then(data => fillCard(data))
+      .catch(err => {
+        if (isContextInvalidatedError(err)) {
+          forceClose();
+          return;
+        }
+        fillCard({ error: err.message });
+      });
   }
 
   // ── Wort am Cursor ermitteln ────────────────────────────────────
@@ -300,7 +306,7 @@
     appendChatMsg('Du', question, '#cba6f7');
     chatHistory.push({ role: 'user', content: question });
 
-    chrome.runtime.sendMessage({
+    sendRuntimeMessage({
       type: 'chat',
       word,
       meaning,
@@ -308,7 +314,13 @@
     }).then(res => {
       chatHistory.push({ role: 'assistant', content: res.answer });
       appendChatMsg('KI', res.answer, '#a6e3a1');
-    }).catch(() => appendChatMsg('KI', '⛔ Verbindungsfehler', '#f38ba8'));
+    }).catch(err => {
+      if (isContextInvalidatedError(err)) {
+        appendChatMsg('KI', 'ℹ Erweiterung wurde neu geladen. Seite neu laden.', '#f9e2af');
+        return;
+      }
+      appendChatMsg('KI', '⛔ Verbindungsfehler', '#f38ba8');
+    });
   }
 
   function appendChatMsg(sender, text, color) {
@@ -362,6 +374,27 @@
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
+  }
+
+  function sendRuntimeMessage(message) {
+    if (!isExtensionContextValid()) {
+      return Promise.reject(new Error('Extension context invalidated'));
+    }
+    try {
+      return Promise.resolve(chrome.runtime.sendMessage(message));
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+
+  function isExtensionContextValid() {
+    return !!(chrome && chrome.runtime && chrome.runtime.id);
+  }
+
+  function isContextInvalidatedError(err) {
+    const msg = String(err?.message || err || '').toLowerCase();
+    return msg.includes('extension context invalidated') ||
+           msg.includes('receiving end does not exist');
   }
 
 })();
