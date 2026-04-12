@@ -1,13 +1,14 @@
-/* background.js — JPN-DE Hover Dictionary v2.0
+/* background.js — JPN-DE/EN Hover Dictionary v2.0
  *
+ * Unterstützt Übersetzungen zwischen Japanisch, Deutsch, Englisch
  * Nachrichten-Typen:
- *   { type: 'lookup', word }  → Dictionary-Daten
+ *   { type: 'lookup', word, focusIndex, scriptType }  → Dictionary-Daten
  *   { type: 'chat', word, meaning, history } → KI-Antwort
  */
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'lookup') {
-    lookupWord(msg.word)
+    lookupWord(msg.word, msg.focusIndex, msg.scriptType)
       .then(sendResponse)
       .catch(err => sendResponse({ found: false, error: err.message }));
     return true; // async
@@ -21,22 +22,149 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 });
 
+const LOOKUP_TTL_MS = 10 * 60 * 1000;
+const lookupCache = new Map();
+const lookupResultCache = new Map();
+const inFlightSearches = new Map();
+
 // ── Wörterbuch-Abfrage ─────────────────────────────────────────────
-async function lookupWord(word) {
-  const url = `https://jisho.org/api/v1/search/words?keyword=${encodeURIComponent(word)}`;
-  const res  = await fetch(url);
-  if (!res.ok) throw new Error(`Jisho antwortet nicht (${res.status})`);
+async function lookupWord(word, focusIndex, scriptType) {
+  // Japanisch erkennen: Wenn scriptType Japanisch ist, Jisho verwenden
+  if (scriptType === 'kanji' || scriptType === 'hiragana' || scriptType === 'katakana') {
+    return await lookupJapanese(word, focusIndex, scriptType);
+  }
+  
+  // Deutsch/Englisch: Übersetzung verwenden
+  const settings = await chrome.storage.sync.get({ sourceLanguage: 'en' });
+  const sourceLanguage = settings.sourceLanguage || 'en';
+  
+  if (sourceLanguage === 'de' || sourceLanguage === 'en') {
+    return await lookupTranslation(word, sourceLanguage);
+  }
+  
+  return { found: false, error: 'Unbekannte Quellsprache' };
+}
 
-  const json    = await res.json();
-  const entries = json?.data;
-  if (!entries?.length) return { found: false };
+// Japanisch-Lookup via Jisho
+async function lookupJapanese(word, focusIndex, scriptType) {
+  const cacheKey = `${word}|${focusIndex}|${scriptType}`;
+  const cachedResult = getFreshCache(lookupResultCache, cacheKey);
+  if (cachedResult) return cachedResult;
 
-  const entry   = entries[0];
+  const candidates = buildLookupCandidates(word, focusIndex, scriptType);
+
+  let bestExact = null;
+  let fallbackEntry = null;
+  let fallbackCandidate = word;
+
+  for (const candidate of candidates) {
+    const entries = await searchJisho(candidate);
+    if (!entries.length) continue;
+
+    const exactEntry = selectExactEntry(entries, candidate);
+    if (exactEntry) {
+      const candidateScore = scoreCandidate(candidate, focusIndex, scriptType, word.length);
+      const totalScore = exactEntry.score + candidateScore;
+      if (!bestExact || totalScore > bestExact.totalScore) {
+        bestExact = {
+          entry: exactEntry.entry,
+          candidate,
+          totalScore,
+        };
+      }
+    }
+
+    if (!fallbackEntry) {
+      fallbackEntry = entries[0];
+      fallbackCandidate = candidate;
+    }
+  }
+
+  if (bestExact) {
+    const result = await formatLookupResult(bestExact.entry, bestExact.candidate);
+    setCache(lookupResultCache, cacheKey, result);
+    return result;
+  }
+
+  if (!fallbackEntry) {
+    const result = { found: false };
+    setCache(lookupResultCache, cacheKey, result);
+    return result;
+  }
+
+  const result = await formatLookupResult(fallbackEntry, fallbackCandidate);
+  setCache(lookupResultCache, cacheKey, result);
+  return result;
+}
+
+// Deutsch/Englisch-Lookup via Übersetzung
+async function lookupTranslation(word, sourceLang) {
+  const cacheKey = `trans|${word}|${sourceLang}`;
+  const cachedResult = getFreshCache(lookupResultCache, cacheKey);
+  if (cachedResult) return cachedResult;
+
+  // Zielsprachen bestimmen
+  const targetLangs = sourceLang === 'de' ? ['en', 'ja'] : ['de', 'ja'];
+  
+  const translations = {};
+  for (const lang of targetLangs) {
+    try {
+      const result = await performTranslation(word, sourceLang, lang);
+      if (result && result.length > 0) {
+        translations[lang] = result;
+      }
+    } catch (e) {
+      console.warn(`Translation error ${sourceLang}→${lang}:`, e);
+    }
+  }
+
+  const result = {
+    found: Object.keys(translations).length > 0,
+    word,
+    translations,
+    sourceLanguage: sourceLang,
+    targetLanguages: targetLangs,
+  };
+
+  setCache(lookupResultCache, cacheKey, result);
+  return result;
+}
+
+async function searchJisho(word) {
+  const cachedEntries = getFreshCache(lookupCache, word);
+  if (cachedEntries) return cachedEntries;
+  if (inFlightSearches.has(word)) return inFlightSearches.get(word);
+
+  const request = (async () => {
+    const url = `https://jisho.org/api/v1/search/words?keyword=${encodeURIComponent(word)}`;
+    const res  = await fetch(url);
+    if (!res.ok) {
+      if (res.status === 429) {
+        throw new Error('Jisho-Limit erreicht, bitte kurz warten');
+      }
+      throw new Error(`Jisho antwortet nicht (${res.status})`);
+    }
+
+    const json = await res.json();
+    const entries = json?.data ?? [];
+    setCache(lookupCache, word, entries);
+    return entries;
+  })();
+
+  inFlightSearches.set(word, request);
+  try {
+    return await request;
+  } finally {
+    inFlightSearches.delete(word);
+  }
+}
+
+async function formatLookupResult(entry, fallbackWord) {
   const jpEntry = entry.japanese?.[0] ?? {};
   const senses  = entry.senses  ?? [];
 
-  const wordText = jpEntry.word    ?? word;
-  const kana     = jpEntry.reading ?? jpEntry.word ?? word;
+  const wordText = jpEntry.word    ?? fallbackWord;
+  const kana     = jpEntry.reading ?? jpEntry.word ?? fallbackWord;
 
   // Romaji aus erster Sense (tag: "Usually written using kana alone" etc.)
   // Kein direkter Romaji in Jisho-API – wir leiten ihn nicht ab.
@@ -67,48 +195,191 @@ async function lookupWord(word) {
   };
 }
 
-// ── Englisch → Deutsch ────────────────────────────────────────────
-async function translateToGerman(definitions) {
-  const text = definitions.join('; ');
+function buildLookupCandidates(word, focusIndex, scriptType) {
+  const source = String(word ?? '').trim();
+  if (!source) return [];
+
+  const unique = new Set();
+  const candidates = [];
+  const add = value => {
+    const candidate = String(value ?? '').trim();
+    if (!candidate || unique.has(candidate)) return;
+    unique.add(candidate);
+    candidates.push(candidate);
+  };
+
+  add(source);
+
+  if (!Number.isInteger(focusIndex) || focusIndex < 0 || focusIndex >= source.length) {
+    return candidates;
+  }
+
+  const maxLen = Math.min(source.length, scriptType === 'kanji' ? 8 : 12);
+  const scored = [];
+
+  for (let start = 0; start <= focusIndex; start++) {
+    for (let end = focusIndex + 1; end <= source.length; end++) {
+      const len = end - start;
+      if (len > maxLen) continue;
+      const touchesEdge = start === focusIndex || end === focusIndex + 1;
+      const edgeDistance = Math.min(focusIndex - start, end - focusIndex - 1);
+      scored.push({
+        candidate: source.slice(start, end),
+        len,
+        start,
+        end,
+        edgeDistance,
+        touchesEdge,
+      });
+    }
+  }
+
+  scored.sort((a, b) => {
+    const aScore = scoreCandidate(a.candidate, focusIndex, scriptType, source.length, a.start, a.end);
+    const bScore = scoreCandidate(b.candidate, focusIndex, scriptType, source.length, b.start, b.end);
+    return bScore - aScore;
+  });
+
+  for (const item of scored) {
+    add(item.candidate);
+    if (candidates.length >= 18) break;
+  }
+
+  return candidates;
+}
+
+function selectExactEntry(entries, candidate) {
+  const scored = entries
+    .map(entry => ({ entry, score: scoreExactEntry(entry, candidate) }))
+    .filter(item => item.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  return scored[0] ?? null;
+}
+
+function scoreExactEntry(entry, candidate) {
+  let score = 0;
+  if (entry.slug === candidate) score = Math.max(score, 5);
+
+  for (const jp of entry.japanese ?? []) {
+    if (jp.word === candidate) score = Math.max(score, 6);
+    if (jp.reading === candidate) score = Math.max(score, jp.word ? 4 : 5);
+  }
+
+  if (entry.is_common) score += 1;
+  return score;
+}
+
+function scoreCandidate(candidate, focusIndex, scriptType, sourceLength, start = null, end = null) {
+  const len = candidate.length;
+  const actualStart = start ?? 0;
+  const actualEnd = end ?? len;
+  const edgeDistance = Math.min(focusIndex - actualStart, actualEnd - focusIndex - 1);
+  const touchesHoveredEdge = actualStart === focusIndex || actualEnd === focusIndex + 1;
+
+  let score = 0;
+
+  if (scriptType === 'kanji') {
+    const preferred = { 2: 60, 3: 48, 1: 34, 4: 24, 5: 16, 6: 10 };
+    score += preferred[len] ?? Math.max(0, 8 - len);
+  } else {
+    score += len === sourceLength ? 60 : Math.max(0, 40 - (sourceLength - len) * 6);
+  }
+
+  score += touchesHoveredEdge ? 12 : 0;
+  score += Math.max(0, 8 - edgeDistance * 4);
+  score += Math.max(0, 6 - Math.abs((actualStart + actualEnd - 1) / 2 - focusIndex) * 2);
+
+  return score;
+}
+
+function getFreshCache(cache, key) {
+  const item = cache.get(key);
+  if (!item) return null;
+  if (Date.now() - item.ts > LOOKUP_TTL_MS) {
+    cache.delete(key);
+    return null;
+  }
+  return item.value;
+}
+
+function setCache(cache, key, value) {
+  cache.set(key, { value, ts: Date.now() });
+}
+
+// ── Englisch → Deutsch/andere Sprachen ────────────────────────────
+async function performTranslation(text, sourceLang, targetLang) {
+  // Mapping für API
+  const langMap = { de: 'DE', en: 'EN', ja: 'JA' };
+  const source = langMap[sourceLang];
+  const target = langMap[targetLang];
+
+  if (!source || !target) {
+    throw new Error(`Ungültige Sprachkombination: ${sourceLang} → ${targetLang}`);
+  }
 
   // 1. DeepL (falls API-Key vorhanden)
   const { deeplKey } = await chrome.storage.sync.get('deeplKey');
   if (deeplKey) {
     try {
       const body = new URLSearchParams({
-        auth_key:    deeplKey,
+        auth_key: deeplKey,
         text,
-        source_lang: 'EN',
-        target_lang: 'DE',
+        source_lang: source,
+        target_lang: target,
       });
       const r = await fetch('https://api-free.deepl.com/v2/translate', {
-        method:  'POST',
+        method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body:    body.toString(),
+        body: body.toString(),
       });
       if (r.ok) {
-        const d  = await r.json();
-        const t  = d.translations?.[0]?.text ?? '';
-        if (t) return t.split(';').map(s => s.trim()).filter(Boolean);
+        const d = await r.json();
+        const t = d.translations?.[0]?.text ?? '';
+        if (t) return [t];
       }
-    } catch { /* fällt durch */ }
+    } catch (e) {
+      console.warn('DeepL error:', e);
+    }
   }
 
-  // 2. Fallback: MyMemory (kostenlos, ~5000 Zeichen/Tag)
+  // 2. Fallback: MyMemory (kostenlos)
+  const langPairMap = {
+    'de|en': 'de|en',
+    'en|de': 'en|de',
+    'ja|de': 'ja|de', 
+    'ja|en': 'ja|en',
+    'de|ja': 'de|ja',
+    'en|ja': 'en|ja',
+  };
+  const pair = langPairMap[`${sourceLang}|${targetLang}`] || `${sourceLang}|${targetLang}`;
+
   try {
     const r = await fetch(
-      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=en|de`
+      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${pair}`
     );
     if (r.ok) {
       const d = await r.json();
       const t = d.responseData?.translatedText ?? '';
       if (t && d.responseStatus === 200) {
-        return t.split(/[;,]/).map(s => s.trim()).filter(Boolean);
+        return [t];
       }
     }
-  } catch { /* fällt durch */ }
+  } catch (e) {
+    console.warn('MyMemory error:', e);
+  }
 
-  return []; // kein Ergebnis → UI zeigt Englisch als Fallback
+  throw new Error(`Keine Übersetzung für ${sourceLang}→${targetLang} verfügbar`);
+}
+
+async function translateToGerman(definitions) {
+  const text = definitions.join('; ');
+  try {
+    const result = await performTranslation(text, 'en', 'de');
+    return result;
+  } catch (e) {
+    return [];
+  }
 }
 
 // ── KI-Chat ───────────────────────────────────────────────────────

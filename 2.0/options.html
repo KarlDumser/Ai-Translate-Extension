@@ -69,6 +69,17 @@
     }
     button:hover { opacity: 0.88; }
 
+    button.secondary {
+      background: #313244;
+      color: #cdd6f4;
+      border: 1px solid #45475a;
+      font-weight: 600;
+    }
+    button.secondary:hover {
+      opacity: 1;
+      border-color: #6c7086;
+    }
+
     #msg {
       margin-top: 10px;
       font-size: 13px;
@@ -77,24 +88,83 @@
       color: #a6e3a1;
     }
     #msg.error { color: #f38ba8; }
+
+    select {
+      width: 100%;
+      background: #313244;
+      color: #cdd6f4;
+      border: 1px solid #45475a;
+      border-radius: 7px;
+      padding: 7px 10px;
+      font-size: 14px;
+      font-family: inherit;
+      outline: none;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    select:focus { border-color: #cba6f7; }
+    select option { background: #313244; color: #cdd6f4; }
+
+    #reloadNotice {
+      display: none;
+      margin-top: 8px;
+      border: 1px solid #f9e2af;
+      background: rgba(249, 226, 175, 0.1);
+      border-radius: 8px;
+      padding: 8px 10px;
+      color: #f9e2af;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .support-box {
+      margin-top: 14px;
+      padding: 10px;
+      border: 1px solid #45475a;
+      border-radius: 8px;
+      background: #252739;
+    }
   </style>
 </head>
 <body>
-  <h1>⚙ JPN-DE Einstellungen</h1>
+  <h1>⚙ JPN-DE/EN Einstellungen</h1>
 
   <div class="field">
-    <label>OpenAI API-Key <span style="color:#585b70;">(für KI-Chat)</span></label>
+    <label id="source-label">Zu übersetzende Sprache</label>
+    <select id="sourceLanguage">
+      <option value="ja">Japanisch</option>
+      <option value="de">Deutsch</option>
+      <option value="en">Englisch</option>
+    </select>
+    <p id="source-hint" class="hint">Von welcher Sprache möchten Sie übersetzen?</p>
+    <div id="reloadNotice"></div>
+  </div>
+
+  <div class="field">
+    <label id="display-label">Anzeigesprache (UI-Sprache)</label>
+    <select id="displayLanguage">
+      <option value="de">Deutsch</option>
+      <option value="en">Englisch</option>
+      <option value="ja">Japanisch</option>
+    </select>
+    <p id="display-hint" class="hint">In welcher Sprache soll die Erweiterung angezeigt werden?</p>
+  </div>
+
+  <hr style="margin: 20px 0; border: none; border-top: 1px solid #45475a;"/>
+
+  <div class="field">
+    <label id="api-label">OpenAI API-Key <span style="color:#585b70;">(für KI-Chat)</span></label>
     <input id="apiKey" type="password" placeholder="sk-…" autocomplete="off" />
-    <p class="hint">
+    <p id="api-hint" class="hint">
       Nur für den Chat-Bereich nötig. Hol dir einen Key auf
       <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com</a>.
     </p>
   </div>
 
   <div class="field">
-    <label>DeepL API-Key <span style="color:#585b70;">(optional, bessere Übersetzung)</span></label>
+    <label id="deepl-label">DeepL API-Key <span style="color:#585b70;">(optional, bessere Übersetzung)</span></label>
     <input id="deeplKey" type="password" placeholder="…:fx" autocomplete="off" />
-    <p class="hint">
+    <p id="deepl-hint" class="hint">
       Kostenlos bis 500.000 Zeichen/Monat.
       <a href="https://www.deepl.com/pro-api" target="_blank">deepl.com/pro-api</a><br>
       Ohne diesen Key wird MyMemory als Fallback genutzt.
@@ -102,6 +172,10 @@
   </div>
 
   <button id="save">Speichern</button>
+  <div class="support-box">
+    <p id="report-label" class="hint" style="margin-top:0; margin-bottom:8px; color:#a6adc8;"></p>
+    <button id="reportBug" class="secondary" type="button"></button>
+  </div>
   <div id="msg"></div>
 
   <script src="options.js"></script>
