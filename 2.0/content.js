@@ -1,3 +1,4 @@
+  const data = await sendRuntimeMessage({ type: 'lookup', word, focusIndex, scriptType, targetLanguage });
 /* content.js — JPN-DE/EN Hover Dictionary v2.0
  * Hover über Wörter → Kana + Bedeutung + KI-Chat
  * Unterstützt Japanisch, Deutsch, Englisch
@@ -53,6 +54,8 @@
 
   let displayLanguage = 'en';
   let sourceLanguage = 'en';
+  let translationMode = 'hover';
+  let targetLanguage = 'de';
   let extensionEnabled = true;
 
   async function loadSettings() {
@@ -60,10 +63,14 @@
       const settings = await chrome.storage.sync.get({
         displayLanguage: 'en',
         sourceLanguage: 'en',
+        translationMode: 'hover',
+        targetLanguage: 'de',
         extensionEnabled: true,
       });
       if (settings.displayLanguage) displayLanguage = settings.displayLanguage;
       if (settings.sourceLanguage) sourceLanguage = settings.sourceLanguage;
+      if (settings.translationMode) translationMode = settings.translationMode;
+      if (settings.targetLanguage) targetLanguage = settings.targetLanguage;
       extensionEnabled = settings.extensionEnabled !== false;
     } catch (e) {
       console.warn('Failed to load settings:', e);
@@ -110,6 +117,7 @@
   document.addEventListener('mousemove', e => {
     if (extensionContextDead) return;
     if (!extensionEnabled) return;
+    if (translationMode === 'select') return;
     if (card && card.contains(e.target)) return;
     lastX = e.clientX;
     lastY = e.clientY;
@@ -124,6 +132,115 @@
     scheduleClose();
   });
 
+  // ── Markiertes Wort erkennen (Linksklick) ──────────────────────
+  document.addEventListener('mouseup', () => {
+    if (extensionContextDead || !extensionEnabled) return;
+    const sel = window.getSelection();
+    if (!sel || sel.toString().trim() === '') return;
+
+    const selectedText = sel.toString().trim();
+    if (!selectedText) return;
+
+    try {
+      const range = sel.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      
+      // Script-Typ erkennen (Japanisch oder Lateinisch)
+      let scriptType = 'latin';
+      if (selectedText.length > 0 && isJapaneseCh(selectedText[0])) {
+        scriptType = scriptOf(selectedText[0]);
+      }
+
+      if (translationMode === 'select') {
+        showSelectionCard(selectedText, rect, range, scriptType);
+      } else {
+        void processSelection(selectedText, rect, range, scriptType);
+      }
+    } catch (err) {
+      console.warn('Selection error:', err);
+    }
+  });
+
+  // ── Selection Card mit Button (für Select-Modus) ────────────────
+  function showSelectionCard(text, rect, range, scriptType) {
+    clearHighlight();
+    applyHighlight(range);
+
+    const btnWidth = 60;
+    const btnHeight = 32;
+    const gap = 8;
+    let btnLeft = rect.left + rect.width / 2 - btnWidth / 2;
+    let btnTop = rect.bottom + gap;
+    
+    if (btnLeft + btnWidth + gap > window.innerWidth) {
+      btnLeft = window.innerWidth - btnWidth - gap;
+    }
+    if (btnLeft < gap) {
+      btnLeft = gap;
+    }
+    if (btnTop + btnHeight + gap > window.innerHeight) {
+      btnTop = rect.top - btnHeight - gap;
+    }
+
+    const btn = document.createElement('button');
+    btn.textContent = '🔍';
+    btn.style.cssText = `
+      all: unset;
+      position: fixed;
+      left: ${btnLeft}px;
+      top: ${btnTop}px;
+      width: ${btnWidth}px;
+      height: ${btnHeight}px;
+      background: #cba6f7;
+      color: #1e1e2e;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 700;
+      text-align: center;
+      line-height: ${btnHeight}px;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      z-index: 2147483646;
+      transition: background 0.1s;
+    `;
+
+    btn.onmouseover = () => { btn.style.background = '#b8a9e8'; };
+    btn.onmouseout = () => { btn.style.background = '#cba6f7'; };
+
+    btn.onclick = () => {
+      currentWord = text;
+      currentHoverKey = `selection:${text}`;
+      chatHistory = [];
+      
+      btn.remove();
+      openCard(rect.left + rect.width / 2, rect.top, text);
+      
+      void sendRuntimeMessage({
+        type: 'lookup',
+        word: text,
+        focusIndex: 0,
+        scriptType,
+        targetLanguage,
+      }).then(data => fillCard(data)).catch(err => {
+        if (isContextInvalidatedError(err)) {
+          handleInvalidatedContext();
+          return;
+        }
+        fillCard({ error: err?.message || String(err) });
+      });
+    };
+
+    document.body.appendChild(btn);
+    
+    const autoRemoveBtn = () => {
+      if (btn.parentNode) btn.remove();
+    };
+    document.addEventListener('click', autoRemoveBtn, { once: true });
+    setTimeout(() => {
+      document.removeEventListener('click', autoRemoveBtn);
+      autoRemoveBtn();
+    }, 5000);
+  }
   // ── Hover verarbeiten ──────────────────────────────────────────
   async function processHover(x, y) {
     try {
@@ -144,7 +261,37 @@
       applyHighlight(range);
       openCard(x, y, word);
 
-      const data = await sendRuntimeMessage({ type: 'lookup', word, focusIndex, scriptType });
+        const data = await sendRuntimeMessage({ type: 'lookup', word, focusIndex, scriptType, targetLanguage });
+      fillCard(data);
+    } catch (err) {
+      if (isContextInvalidatedError(err)) {
+        handleInvalidatedContext();
+        return;
+      }
+      fillCard({ error: err?.message || String(err) });
+    }
+  }
+
+  // ── Markiertes Wort verarbeiten (User-Markierung) ───────────────
+  async function processSelection(text, rect, range, scriptType) {
+    try {
+      if (extensionContextDead || !extensionEnabled) return;
+
+      cancelClose();
+      currentWord = text;
+      currentHoverKey = `selection:${text}`;
+      chatHistory = [];
+
+      applyHighlight(range);
+      openCard(rect.left + rect.width / 2, rect.top, text);
+
+      const data = await sendRuntimeMessage({
+        type: 'lookup',
+        word: text,
+        focusIndex: 0,
+        scriptType,
+        targetLanguage,
+      });
       fillCard(data);
     } catch (err) {
       if (isContextInvalidatedError(err)) {
@@ -607,6 +754,14 @@
 
     if (changes.sourceLanguage) {
       sourceLanguage = changes.sourceLanguage.newValue || sourceLanguage;
+    }
+
+    if (changes.translationMode) {
+      translationMode = changes.translationMode.newValue || translationMode;
+    }
+
+    if (changes.targetLanguage) {
+      targetLanguage = changes.targetLanguage.newValue || targetLanguage;
     }
 
     if (changes.extensionEnabled) {

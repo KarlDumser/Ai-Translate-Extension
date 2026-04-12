@@ -4,10 +4,27 @@
   const i18n = {
     de: {
       title: '⚙ JPN-DE/EN Einstellungen',
-      sourceLabel: 'Zu übersetzende Sprache',
+      modeLabel: 'Übersetzungsmodus',
+      modeHint: 'Hover: Sofort beim Überfahren. Select: Wort markieren + Button.',
+      modeHover: 'Hover (sofort)',
+      modeSelect: 'Select (mit Button)',
+      sourceLabel: 'Quellsprache',
       sourceHint: 'Von welcher Sprache möchten Sie übersetzen?',
+      sourceAuto: 'Auto-Erkennung (KI)',
+      targetLabel: 'Zielsprache',
+      targetHint: 'In welche Sprache möchten Sie übersetzen?',
       displayLabel: 'Anzeigesprache (UI-Sprache)',
       displayHint: 'In welcher Sprache soll die Erweiterung angezeigt werden?',
+      targetDE: 'Deutsch',
+      targetEN: 'English',
+      targetJA: '日本語',
+      targetFR: 'Français',
+      targetES: 'Español',
+      targetIT: 'Italiano',
+      targetPT: 'Português',
+      targetRU: 'Русский',
+      targetZH: '中文 (简体)',
+      targetKO: '한국어',
       apiLabel: 'OpenAI API-Key (für KI-Chat)',
       apiHint: 'Nur für den Chat-Bereich nötig. Hol dir einen Key auf platform.openai.com',
       deeplLabel: 'DeepL API-Key (optional, bessere Übersetzung)',
@@ -23,10 +40,27 @@
     },
     en: {
       title: '⚙ JPN-EN Settings',
+        modeLabel: 'Translation Mode',
+        modeHint: 'Hover: Translate instantly. Select: Mark word + click button.',
+        modeHover: 'Hover (instant)',
+        modeSelect: 'Select (with button)',
       sourceLabel: 'Language to translate',
       sourceHint: 'Which language do you want to translate from?',
+        sourceAuto: 'Auto-Detect (AI)',
+        targetLabel: 'Target Language',
+        targetHint: 'Which language do you want to translate to?',
       displayLabel: 'Display Language (UI)',
       displayHint: 'In which language should the extension be displayed?',
+        targetDE: 'Deutsch',
+        targetEN: 'English',
+        targetJA: '日本語',
+        targetFR: 'Français',
+        targetES: 'Español',
+        targetIT: 'Italiano',
+        targetPT: 'Português',
+        targetRU: 'Русский',
+        targetZH: '中文 (简体)',
+        targetKO: '한국어',
       apiLabel: 'OpenAI API-Key (for AI chat)',
       apiHint: 'Only needed for chat. Get a key at platform.openai.com',
       deeplLabel: 'DeepL API-Key (optional, better translation)',
@@ -42,10 +76,27 @@
     },
     ja: {
       title: '⚙ JPN-EN 設定',
+        modeLabel: '翻訳モード',
+        modeHint: 'ホバー：ホバーする際に即座に翻訳します。セレクト：単語をマークして+クリックします。',
+        modeHover: 'ホバー (即座)',
+        modeSelect: 'セレクト (ボタン付き)',
       sourceLabel: '翻訳対象言語',
       sourceHint: 'どの言語から翻訳しますか？',
+        sourceAuto: '自動検出 (AI)',
+        targetLabel: 'ターゲット言語',
+        targetHint: 'どの言語に翻訳したいですか？',
       displayLabel: '表示言語 (UI)',
       displayHint: '拡張機能をどの言語で表示しますか？',
+        targetDE: 'Deutsch',
+        targetEN: 'English',
+        targetJA: '日本語',
+        targetFR: 'Français',
+        targetES: 'Español',
+        targetIT: 'Italiano',
+        targetPT: 'Português',
+        targetRU: 'Русский',
+        targetZH: '中文 (简体)',
+        targetKO: '한국어',
       apiLabel: 'OpenAI API-Key (AI チャット用)',
       apiHint: 'チャットのみ必要です。platform.openai.com でキーを取得してください',
       deeplLabel: 'DeepL API-Key (オプション、より良い翻訳)',
@@ -63,10 +114,13 @@
 
   let currentLang = 'en';
   let initialSourceLanguage = 'en';
+    let hasOpenAIKey = false;
 
   const apiInput          = document.getElementById('apiKey');
   const deeplInput        = document.getElementById('deeplKey');
   const sourceLanguage    = document.getElementById('sourceLanguage');
+    const translationMode   = document.getElementById('translationMode');
+    const targetLanguage    = document.getElementById('targetLanguage');
   const displayLanguage   = document.getElementById('displayLanguage');
   const reloadNotice      = document.getElementById('reloadNotice');
   const reportBugBtn      = document.getElementById('reportBug');
@@ -83,6 +137,10 @@
     const labels = {
       'source-label': t('sourceLabel'),
       'source-hint': t('sourceHint'),
+      'mode-label': t('modeLabel'),
+      'mode-hint': t('modeHint'),
+      'target-label': t('targetLabel'),
+      'target-hint': t('targetHint'),
       'display-label': t('displayLabel'),
       'display-hint': t('displayHint'),
       'api-label': t('apiLabel'),
@@ -143,23 +201,45 @@
     'apiKey', 
     'deeplKey', 
     'sourceLanguage', 
+    'translationMode',
+    'targetLanguage',
     'displayLanguage'
   ]);
   
   if (stored.apiKey)          apiInput.value          = stored.apiKey;
   if (stored.deeplKey)        deeplInput.value        = stored.deeplKey;
   if (stored.sourceLanguage)  sourceLanguage.value    = stored.sourceLanguage;
+  if (stored.translationMode) translationMode.value   = stored.translationMode;
+  if (stored.targetLanguage)  targetLanguage.value    = stored.targetLanguage;
   if (stored.displayLanguage) displayLanguage.value   = stored.displayLanguage;
 
   // Defaults setzen
   if (!sourceLanguage.value)  sourceLanguage.value  = 'en';
+  if (!translationMode.value) translationMode.value = 'hover';
+  if (!targetLanguage.value)  targetLanguage.value  = 'de';
   if (!displayLanguage.value) displayLanguage.value = 'en';
+
+  // "Auto-Erkennung" Option nur anzeigen wenn OpenAI API Key
+  function updateSourceLanguageOptions() {
+    hasOpenAIKey = apiInput.value.trim().length > 0;
+    const autoOption = sourceLanguage.querySelector('option[value="auto"]');
+    
+    if (hasOpenAIKey && !autoOption) {
+      const opt = document.createElement('option');
+      opt.value = 'auto';
+      opt.textContent = t('sourceAuto');
+      sourceLanguage.appendChild(opt);
+    } else if (!hasOpenAIKey && autoOption) {
+      autoOption.remove();
+    }
+  }
 
   initialSourceLanguage = sourceLanguage.value;
   
   currentLang = displayLanguage.value;
   updateUIText();
   showReloadNotice(false);
+  updateSourceLanguageOptions();
 
   // Event-Listener für Anzeigesprache-Änderung
   displayLanguage.addEventListener('change', () => {
@@ -169,6 +249,10 @@
 
   sourceLanguage.addEventListener('change', () => {
     showReloadNotice(sourceLanguage.value !== initialSourceLanguage);
+  });
+
+  apiInput.addEventListener('change', () => {
+    updateSourceLanguageOptions();
   });
 
   if (reportBugBtn) {
@@ -181,12 +265,16 @@
     const apiKey          = apiInput.value.trim();
     const deeplKey        = deeplInput.value.trim();
     const sourceLang      = sourceLanguage.value;
+    const mode            = translationMode.value;
+    const targetLang      = targetLanguage.value;
     const displayLang     = displayLanguage.value;
 
     await chrome.storage.sync.set({ 
       apiKey, 
       deeplKey, 
       sourceLanguage: sourceLang,
+      translationMode: mode,
+      targetLanguage: targetLang,
       displayLanguage: displayLang
     });
 

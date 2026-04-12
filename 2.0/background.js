@@ -8,7 +8,7 @@
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'lookup') {
-    lookupWord(msg.word, msg.focusIndex, msg.scriptType)
+    lookupWord(msg.word, msg.focusIndex, msg.scriptType, msg.targetLanguage)
       .then(sendResponse)
       .catch(err => sendResponse({ found: false, error: err.message }));
     return true; // async
@@ -50,14 +50,29 @@ async function lookupWord(word, focusIndex, scriptType) {
   }
   
   // Deutsch/Englisch: Übersetzung verwenden
-  const settings = await chrome.storage.sync.get({ sourceLanguage: 'en' });
+  const settings = await chrome.storage.sync.get({ 
+    sourceLanguage: 'en',
+    apiKey: '',
+  });
   const sourceLanguage = settings.sourceLanguage || 'en';
+  const apiKey = settings.apiKey || '';
+  const target = targetLanguage || 'en';
   
-  if (sourceLanguage === 'de' || sourceLanguage === 'en') {
-    return await lookupTranslation(word, sourceLanguage);
+  if (sourceLanguage === 'auto') {
+    // Auto-Erkennung: nur mit OpenAI API möglich
+    if (!apiKey) {
+      return { found: false, error: 'Auto-detection needs OpenAI API key' };
+    }
+    // Sprache erkennen via OpenAI
+    const detectedLang = await detectLanguage(word, apiKey);
+    return await lookupTranslation(word, detectedLang, target);
   }
   
-  return { found: false, error: 'Unbekannte Quellsprache' };
+  if (sourceLanguage === 'de' || sourceLanguage === 'en' || sourceLanguage === 'ja') {
+    return await lookupTranslation(word, sourceLanguage, target);
+  }
+  
+  return { found: false, error: 'Unknown source language' };
 }
 
 // Japanisch-Lookup via Jisho
@@ -113,13 +128,15 @@ async function lookupJapanese(word, focusIndex, scriptType) {
 }
 
 // Deutsch/Englisch-Lookup via Übersetzung
-async function lookupTranslation(word, sourceLang) {
+async function lookupTranslation(word, sourceLang, targetLanguage) {
   const cacheKey = `trans|${word}|${sourceLang}`;
   const cachedResult = getFreshCache(lookupResultCache, cacheKey);
   if (cachedResult) return cachedResult;
 
   // Zielsprachen bestimmen
-  const targetLangs = sourceLang === 'de' ? ['en', 'ja'] : ['de', 'ja'];
+  const targetLangs = (targetLanguage && targetLanguage !== sourceLang)
+    ? [targetLanguage] 
+    : (sourceLang === 'de' ? ['en', 'ja'] : ['de', 'ja']);
   
   const translations = {};
   for (const lang of targetLangs) {
@@ -145,6 +162,37 @@ async function lookupTranslation(word, sourceLang) {
   return result;
 }
 
+async function detectLanguage(text, apiKey) {
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-3.5-turbo',
+        messages: [{
+          role: 'user',
+          content: `Detect the language of this text and respond ONLY with the ISO 639-1 code (e.g., "de", "en", "ja", "fr", "es"). Text: "${text}"`,
+        }],
+        temperature: 0,
+        max_tokens: 5,
+      }),
+    });
+    
+    if (!response.ok) {
+      throw new Error(`OpenAI API error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    const detected = data.choices[0]?.message?.content?.trim().toLowerCase() || 'en';
+    return detected;
+  } catch (err) {
+    console.error('Language detection failed:', err);
+    return 'en'; // Fallback zu Englisch
+  }
+}
 async function searchJisho(word) {
   const cachedEntries = getFreshCache(lookupCache, word);
   if (cachedEntries) return cachedEntries;
