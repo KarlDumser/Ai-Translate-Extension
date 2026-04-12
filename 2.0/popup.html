@@ -63,6 +63,20 @@
       text-align: center;
       min-height: 16px;
     }
+
+    .row {
+      margin-top: 8px;
+      font-size: 12px;
+      color: #bac2de;
+      line-height: 1.4;
+    }
+
+    .switch-state {
+      margin-top: 6px;
+      font-size: 12px;
+      color: #f9e2af;
+      min-height: 16px;
+    }
   </style>
 </head>
 <body>
@@ -74,6 +88,13 @@
   </div>
 
   <p id="key-status" style="font-size:12px; color:#585b70;">Prüfe API-Keys…</p>
+
+  <div class="row" id="shortcut-hint">
+    Shortcut Toggle: <span class="kbd">Ctrl+Shift+Y</span> / Mac: <span class="kbd">Cmd+Shift+Y</span>
+  </div>
+
+  <button id="toggle-btn">Extension Ein/Aus</button>
+  <div id="switch-state" class="switch-state"></div>
 
   <button id="options-btn">⚙ Einstellungen öffnen</button>
   <div id="status"></div>

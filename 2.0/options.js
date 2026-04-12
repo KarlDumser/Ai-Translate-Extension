@@ -19,6 +19,7 @@
       reportLabel: 'Fehler gefunden? Senden Sie bitte einen Bug-Report.',
       reportButton: 'Bug melden',
       reportSubject: 'Bug Report: JPN-DE/EN Hover Dictionary',
+      shortcutInfo: 'Schnell-Toggle: Ctrl+Shift+Y (Macbook: Cmd+Shift+Y). Tastenkombi anpassen unter chrome://extensions/shortcuts',
     },
     en: {
       title: '⚙ JPN-EN Settings',
@@ -37,6 +38,7 @@
       reportLabel: 'Found a bug? Please send a bug report.',
       reportButton: 'Report a bug',
       reportSubject: 'Bug Report: JPN-DE/EN Hover Dictionary',
+      shortcutInfo: 'Quick toggle: Ctrl+Shift+Y (Macbook: Cmd+Shift+Y). You can customize it in chrome://extensions/shortcuts',
     },
     ja: {
       title: '⚙ JPN-EN 設定',
@@ -55,6 +57,7 @@
       reportLabel: '不具合を見つけましたか？バグレポートを送信してください。',
       reportButton: 'バグを報告',
       reportSubject: 'Bug Report: JPN-DE/EN Hover Dictionary',
+      shortcutInfo: 'クイック切替: Ctrl+Shift+Y (Macbook: Cmd+Shift+Y)。chrome://extensions/shortcuts で変更できます',
     },
   };
 
@@ -87,6 +90,7 @@
       'deepl-label': t('deeplLabel'),
       'deepl-hint': t('deeplHint'),
       'report-label': t('reportLabel'),
+      'toggle-shortcut-label': t('shortcutInfo'),
     };
 
     for (const [id, text] of Object.entries(labels)) {

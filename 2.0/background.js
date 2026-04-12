@@ -22,6 +22,21 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 });
 
+chrome.runtime.onInstalled.addListener(async () => {
+  const stored = await chrome.storage.sync.get('extensionEnabled');
+  if (typeof stored.extensionEnabled !== 'boolean') {
+    await chrome.storage.sync.set({ extensionEnabled: true });
+  }
+});
+
+chrome.commands.onCommand.addListener(async command => {
+  if (command !== 'toggle-extension') return;
+
+  const stored = await chrome.storage.sync.get({ extensionEnabled: true });
+  const nextState = !stored.extensionEnabled;
+  await chrome.storage.sync.set({ extensionEnabled: nextState });
+});
+
 const LOOKUP_TTL_MS = 10 * 60 * 1000;
 const lookupCache = new Map();
 const lookupResultCache = new Map();

@@ -53,12 +53,18 @@
 
   let displayLanguage = 'en';
   let sourceLanguage = 'en';
+  let extensionEnabled = true;
 
   async function loadSettings() {
     try {
-      const settings = await chrome.storage.sync.get(['displayLanguage', 'sourceLanguage']);
+      const settings = await chrome.storage.sync.get({
+        displayLanguage: 'en',
+        sourceLanguage: 'en',
+        extensionEnabled: true,
+      });
       if (settings.displayLanguage) displayLanguage = settings.displayLanguage;
       if (settings.sourceLanguage) sourceLanguage = settings.sourceLanguage;
+      extensionEnabled = settings.extensionEnabled !== false;
     } catch (e) {
       console.warn('Failed to load settings:', e);
     }
@@ -103,6 +109,7 @@
   // ── Haupt-Listener ─────────────────────────────────────────────
   document.addEventListener('mousemove', e => {
     if (extensionContextDead) return;
+    if (!extensionEnabled) return;
     if (card && card.contains(e.target)) return;
     lastX = e.clientX;
     lastY = e.clientY;
@@ -121,6 +128,7 @@
   async function processHover(x, y) {
     try {
       if (extensionContextDead) return;
+      if (!extensionEnabled) return;
       const hit = getWordAtPoint(x, y);
       if (!hit) { scheduleClose(); return; }
 
@@ -589,5 +597,26 @@
       }
     }
   }
+
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== 'sync') return;
+
+    if (changes.displayLanguage) {
+      displayLanguage = changes.displayLanguage.newValue || displayLanguage;
+    }
+
+    if (changes.sourceLanguage) {
+      sourceLanguage = changes.sourceLanguage.newValue || sourceLanguage;
+    }
+
+    if (changes.extensionEnabled) {
+      extensionEnabled = changes.extensionEnabled.newValue !== false;
+      if (!extensionEnabled) {
+        clearTimeout(hoverTimer);
+        clearTimeout(closeTimer);
+        closeCard();
+      }
+    }
+  });
 
 })();

@@ -13,6 +13,15 @@
   "background": {
     "service_worker": "background.js"
   },
+  "commands": {
+    "toggle-extension": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+Y"
+      },
+      "description": "Enable/disable hover dictionary quickly"
+    }
+  },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
