@@ -55,6 +55,7 @@
   let sourceLanguage = 'en';
   let translationMode = 'hover';
   let targetLanguage = 'de';
+  let debugMode = false;
   let extensionEnabled = true;
 
   async function loadSettings() {
@@ -64,13 +65,17 @@
         sourceLanguage: 'en',
         translationMode: 'hover',
         targetLanguage: 'de',
+        debugMode: false,
         extensionEnabled: true,
       });
       if (settings.displayLanguage) displayLanguage = settings.displayLanguage;
       if (settings.sourceLanguage) sourceLanguage = settings.sourceLanguage;
       if (settings.translationMode) translationMode = settings.translationMode;
       if (settings.targetLanguage) targetLanguage = settings.targetLanguage;
+      debugMode = settings.debugMode === true;
       extensionEnabled = settings.extensionEnabled !== false;
+      dbg(`settings loaded: enabled=${extensionEnabled}, mode=${translationMode}, source=${sourceLanguage}, target=${targetLanguage}`);
+      void pingBackground();
     } catch (e) {
       console.warn('Failed to load settings:', e);
     }
@@ -78,6 +83,44 @@
 
   function t(key) {
     return (i18n[displayLanguage] || i18n.de)[key] || key;
+  }
+
+  function dbg(message) {
+    if (!debugMode) return;
+    let box = document.getElementById('jpde-debug');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'jpde-debug';
+      box.style.cssText = [
+        'position:fixed',
+        'right:12px',
+        'bottom:12px',
+        'max-width:420px',
+        'max-height:35vh',
+        'overflow:auto',
+        'padding:8px 10px',
+        'font:12px/1.35 Consolas,Menlo,monospace',
+        'background:rgba(20,20,30,0.94)',
+        'color:#a6e3a1',
+        'border:1px solid #45475a',
+        'border-radius:8px',
+        'z-index:2147483647',
+        'white-space:pre-wrap',
+      ].join(';');
+      document.documentElement.appendChild(box);
+    }
+    const now = new Date().toLocaleTimeString();
+    box.textContent += `[${now}] ${message}\n`;
+    box.scrollTop = box.scrollHeight;
+  }
+
+  async function pingBackground() {
+    try {
+      const res = await sendRuntimeMessage({ type: 'ping' });
+      dbg(`background ping: ${res?.ok ? 'ok' : 'unexpected response'}`);
+    } catch (err) {
+      dbg(`background ping failed: ${err?.message || String(err)}`);
+    }
   }
 
   // ── Konfiguration ──────────────────────────────────────────────
@@ -155,12 +198,15 @@
       }
 
       if (translationMode === 'select') {
+        dbg(`selection detected: ${selectedText}`);
         showSelectionCard(selectedText, rect, range, scriptType);
       } else {
+        dbg(`selection translate direct: ${selectedText}`);
         void processSelection(selectedText, rect, range, scriptType);
       }
     } catch (err) {
       console.warn('Selection error:', err);
+      dbg(`selection error: ${err?.message || String(err)}`);
     }
   });
 
@@ -280,6 +326,7 @@
       if (!hit) { scheduleClose(); return; }
 
       const { word, range, focusIndex, scriptType } = hit;
+      dbg(`hover hit: ${word} (${scriptType})`);
       const hoverKey = `${word}:${focusIndex}`;
       if (hoverKey === currentHoverKey) return;
 
@@ -291,9 +338,11 @@
       applyHighlight(range);
       openCard(x, y, word);
 
-        const data = await sendRuntimeMessage({ type: 'lookup', word, focusIndex, scriptType, targetLanguage });
+      const data = await sendRuntimeMessage({ type: 'lookup', word, focusIndex, scriptType, targetLanguage });
+      dbg(`lookup ok: ${word}`);
       fillCard(data);
     } catch (err) {
+      dbg(`lookup error: ${err?.message || String(err)}`);
       if (isContextInvalidatedError(err)) {
         handleInvalidatedContext();
         return;
@@ -322,8 +371,10 @@
         scriptType,
         targetLanguage,
       });
+      dbg(`selection lookup ok: ${text}`);
       fillCard(data);
     } catch (err) {
+      dbg(`selection lookup error: ${err?.message || String(err)}`);
       if (isContextInvalidatedError(err)) {
         handleInvalidatedContext();
         return;
@@ -779,22 +830,32 @@
 
     if (changes.displayLanguage) {
       displayLanguage = changes.displayLanguage.newValue || displayLanguage;
+      dbg(`displayLanguage -> ${displayLanguage}`);
     }
 
     if (changes.sourceLanguage) {
       sourceLanguage = changes.sourceLanguage.newValue || sourceLanguage;
+      dbg(`sourceLanguage -> ${sourceLanguage}`);
     }
 
     if (changes.translationMode) {
       translationMode = changes.translationMode.newValue || translationMode;
+      dbg(`translationMode -> ${translationMode}`);
     }
 
     if (changes.targetLanguage) {
       targetLanguage = changes.targetLanguage.newValue || targetLanguage;
+      dbg(`targetLanguage -> ${targetLanguage}`);
+    }
+
+    if (changes.debugMode) {
+      debugMode = changes.debugMode.newValue === true;
+      dbg(`debugMode -> ${debugMode}`);
     }
 
     if (changes.extensionEnabled) {
       extensionEnabled = changes.extensionEnabled.newValue !== false;
+      dbg(`extensionEnabled -> ${extensionEnabled}`);
       if (!extensionEnabled) {
         clearTimeout(hoverTimer);
         clearTimeout(closeTimer);

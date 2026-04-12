@@ -7,6 +7,11 @@
  */
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg.type === 'ping') {
+    sendResponse({ ok: true, ts: Date.now() });
+    return;
+  }
+
   if (msg.type === 'lookup') {
     lookupWord(msg.word, msg.focusIndex, msg.scriptType, msg.targetLanguage)
       .then(sendResponse)

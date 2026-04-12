@@ -15,6 +15,10 @@
       targetHint: 'In welche Sprache möchten Sie übersetzen?',
       displayLabel: 'Anzeigesprache (UI-Sprache)',
       displayHint: 'In welcher Sprache soll die Erweiterung angezeigt werden?',
+      enabledLabel: 'Erweiterung aktiv',
+      enabledHint: 'Wenn deaktiviert, arbeitet Hover/Select nicht.',
+      debugLabel: 'Debug-Modus',
+      debugHint: 'Zeigt ein Diagnose-Overlay im Tab (Events, Verbindungsfehler, Modus).',
       targetDE: 'Deutsch',
       targetEN: 'English',
       targetJA: '日本語',
@@ -51,6 +55,10 @@
         targetHint: 'Which language do you want to translate to?',
       displayLabel: 'Display Language (UI)',
       displayHint: 'In which language should the extension be displayed?',
+      enabledLabel: 'Extension Enabled',
+      enabledHint: 'If disabled, hover/select translation will not run.',
+      debugLabel: 'Debug Mode',
+      debugHint: 'Shows a diagnostics overlay in-page (events, connection errors, mode).',
         targetDE: 'Deutsch',
         targetEN: 'English',
         targetJA: '日本語',
@@ -87,6 +95,10 @@
         targetHint: 'どの言語に翻訳したいですか？',
       displayLabel: '表示言語 (UI)',
       displayHint: '拡張機能をどの言語で表示しますか？',
+      enabledLabel: '拡張機能を有効化',
+      enabledHint: '無効の場合、ホバー/セレクト翻訳は動作しません。',
+      debugLabel: 'デバッグモード',
+      debugHint: 'タブ内に診断オーバーレイを表示します（イベント、接続エラー、モード）。',
         targetDE: 'Deutsch',
         targetEN: 'English',
         targetJA: '日本語',
@@ -119,8 +131,10 @@
   const apiInput          = document.getElementById('apiKey');
   const deeplInput        = document.getElementById('deeplKey');
   const sourceLanguage    = document.getElementById('sourceLanguage');
-    const translationMode   = document.getElementById('translationMode');
-    const targetLanguage    = document.getElementById('targetLanguage');
+  const translationMode   = document.getElementById('translationMode');
+  const targetLanguage    = document.getElementById('targetLanguage');
+  const extensionEnabled  = document.getElementById('extensionEnabled');
+  const debugMode         = document.getElementById('debugMode');
   const displayLanguage   = document.getElementById('displayLanguage');
   const reloadNotice      = document.getElementById('reloadNotice');
   const reportBugBtn      = document.getElementById('reportBug');
@@ -143,6 +157,10 @@
       'target-hint': t('targetHint'),
       'display-label': t('displayLabel'),
       'display-hint': t('displayHint'),
+      'enabled-label': t('enabledLabel'),
+      'enabled-hint': t('enabledHint'),
+      'debug-label': t('debugLabel'),
+      'debug-hint': t('debugHint'),
       'api-label': t('apiLabel'),
       'api-hint': t('apiHint'),
       'deepl-label': t('deeplLabel'),
@@ -158,6 +176,17 @@
 
     saveBtn.textContent = t('save');
     if (reportBugBtn) reportBugBtn.textContent = t('reportButton');
+
+    const enabledEl = document.getElementById('extensionEnabled');
+    const debugEl = document.getElementById('debugMode');
+    if (enabledEl) {
+      enabledEl.options[0].textContent = currentLang === 'ja' ? '有効' : currentLang === 'en' ? 'Enabled' : 'Aktiv';
+      enabledEl.options[1].textContent = currentLang === 'ja' ? '無効' : currentLang === 'en' ? 'Disabled' : 'Deaktiviert';
+    }
+    if (debugEl) {
+      debugEl.options[0].textContent = currentLang === 'ja' ? 'オフ' : currentLang === 'en' ? 'Off' : 'Aus';
+      debugEl.options[1].textContent = currentLang === 'ja' ? 'オン' : currentLang === 'en' ? 'On' : 'Ein';
+    }
 
     if (reloadNotice && reloadNotice.style.display !== 'none') {
       reloadNotice.textContent = t('reloadNotice');
@@ -203,6 +232,8 @@
     'sourceLanguage', 
     'translationMode',
     'targetLanguage',
+    'extensionEnabled',
+    'debugMode',
     'displayLanguage'
   ]);
   
@@ -211,12 +242,16 @@
   if (stored.sourceLanguage)  sourceLanguage.value    = stored.sourceLanguage;
   if (stored.translationMode) translationMode.value   = stored.translationMode;
   if (stored.targetLanguage)  targetLanguage.value    = stored.targetLanguage;
+  if (typeof stored.extensionEnabled === 'boolean') extensionEnabled.value = String(stored.extensionEnabled);
+  if (typeof stored.debugMode === 'boolean') debugMode.value = String(stored.debugMode);
   if (stored.displayLanguage) displayLanguage.value   = stored.displayLanguage;
 
   // Defaults setzen
   if (!sourceLanguage.value)  sourceLanguage.value  = 'en';
   if (!translationMode.value) translationMode.value = 'hover';
   if (!targetLanguage.value)  targetLanguage.value  = 'de';
+  if (!extensionEnabled.value) extensionEnabled.value = 'true';
+  if (!debugMode.value) debugMode.value = 'false';
   if (!displayLanguage.value) displayLanguage.value = 'en';
 
   // "Auto-Erkennung" Option nur anzeigen wenn OpenAI API Key
@@ -267,6 +302,8 @@
     const sourceLang      = sourceLanguage.value;
     const mode            = translationMode.value;
     const targetLang      = targetLanguage.value;
+    const isEnabled       = extensionEnabled.value === 'true';
+    const isDebugMode     = debugMode.value === 'true';
     const displayLang     = displayLanguage.value;
 
     await chrome.storage.sync.set({ 
@@ -275,6 +312,8 @@
       sourceLanguage: sourceLang,
       translationMode: mode,
       targetLanguage: targetLang,
+      extensionEnabled: isEnabled,
+      debugMode: isDebugMode,
       displayLanguage: displayLang
     });
 
