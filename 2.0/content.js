@@ -125,7 +125,7 @@
 
   // ── Konfiguration ──────────────────────────────────────────────
   const CARD_WIDTH   = 360;
-  const DEBOUNCE_MS  = 380;
+  const DEBOUNCE_MS  = 120;
   const CLOSE_DELAY  = 700;
 
   // ── Zustands-Variablen ─────────────────────────────────────────

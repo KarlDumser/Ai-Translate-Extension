@@ -47,6 +47,18 @@ const lookupCache = new Map();
 const lookupResultCache = new Map();
 const inFlightSearches = new Map();
 
+// DeepL-Key einmal laden und bei Änderungen aktualisieren
+let _deeplKey = undefined;
+async function getDeeplKey() {
+  if (_deeplKey !== undefined) return _deeplKey;
+  const stored = await chrome.storage.sync.get('deeplKey');
+  _deeplKey = stored.deeplKey || '';
+  return _deeplKey;
+}
+chrome.storage.onChanged.addListener(changes => {
+  if (changes.deeplKey) _deeplKey = changes.deeplKey.newValue || '';
+});
+
 // ── Wörterbuch-Abfrage ─────────────────────────────────────────────
 async function lookupWord(word, focusIndex, scriptType, targetLanguage) {
   // Japanisch erkennen: Wenn scriptType Japanisch ist, Jisho verwenden
@@ -90,12 +102,20 @@ async function lookupJapanese(word, focusIndex, scriptType) {
 
   const candidates = buildLookupCandidates(word, focusIndex, scriptType);
 
+  // Alle Kandidaten parallel abrufen (inFlightSearches dedupliziert gleiche Wörter)
+  const searchResults = await Promise.all(
+    candidates.map(c =>
+      searchJisho(c)
+        .then(entries => ({ candidate: c, entries }))
+        .catch(() => ({ candidate: c, entries: [] }))
+    )
+  );
+
   let bestExact = null;
   let fallbackEntry = null;
   let fallbackCandidate = word;
 
-  for (const candidate of candidates) {
-    const entries = await searchJisho(candidate);
+  for (const { candidate, entries } of searchResults) {
     if (!entries.length) continue;
 
     const exactEntry = selectExactEntry(entries, candidate);
@@ -145,17 +165,18 @@ async function lookupTranslation(word, sourceLang, targetLanguage) {
     ? [targetLanguage] 
     : (sourceLang === 'de' ? ['en', 'ja'] : ['de', 'ja']);
   
+  // Alle Übersetzungen parallel starten
+  const settled = await Promise.allSettled(
+    targetLangs.map(lang => performTranslation(word, sourceLang, lang))
+  );
   const translations = {};
-  for (const lang of targetLangs) {
-    try {
-      const result = await performTranslation(word, sourceLang, lang);
-      if (result && result.length > 0) {
-        translations[lang] = result;
-      }
-    } catch (e) {
-      console.warn(`Translation error ${sourceLang}→${lang}:`, e);
+  settled.forEach((r, i) => {
+    if (r.status === 'fulfilled' && r.value?.length > 0) {
+      translations[targetLangs[i]] = r.value;
+    } else if (r.status === 'rejected') {
+      console.warn(`Translation error ${sourceLang}→${targetLangs[i]}:`, r.reason);
     }
-  }
+  });
 
   const result = {
     found: Object.keys(translations).length > 0,
@@ -389,7 +410,7 @@ async function performTranslation(text, sourceLang, targetLang) {
   }
 
   // 1. DeepL (falls API-Key vorhanden)
-  const { deeplKey } = await chrome.storage.sync.get('deeplKey');
+  const deeplKey = await getDeeplKey();
   if (deeplKey) {
     try {
       const body = new URLSearchParams({
