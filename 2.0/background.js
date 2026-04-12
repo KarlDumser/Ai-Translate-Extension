@@ -43,7 +43,7 @@ const lookupResultCache = new Map();
 const inFlightSearches = new Map();
 
 // ── Wörterbuch-Abfrage ─────────────────────────────────────────────
-async function lookupWord(word, focusIndex, scriptType) {
+async function lookupWord(word, focusIndex, scriptType, targetLanguage) {
   // Japanisch erkennen: Wenn scriptType Japanisch ist, Jisho verwenden
   if (scriptType === 'kanji' || scriptType === 'hiragana' || scriptType === 'katakana') {
     return await lookupJapanese(word, focusIndex, scriptType);
@@ -129,7 +129,7 @@ async function lookupJapanese(word, focusIndex, scriptType) {
 
 // Deutsch/Englisch-Lookup via Übersetzung
 async function lookupTranslation(word, sourceLang, targetLanguage) {
-  const cacheKey = `trans|${word}|${sourceLang}`;
+  const cacheKey = `trans|${word}|${sourceLang}|${targetLanguage || 'auto'}`;
   const cachedResult = getFreshCache(lookupResultCache, cacheKey);
   if (cachedResult) return cachedResult;
 

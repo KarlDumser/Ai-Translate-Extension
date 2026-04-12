@@ -1,4 +1,3 @@
-  const data = await sendRuntimeMessage({ type: 'lookup', word, focusIndex, scriptType, targetLanguage });
 /* content.js — JPN-DE/EN Hover Dictionary v2.0
  * Hover über Wörter → Kana + Bedeutung + KI-Chat
  * Unterstützt Japanisch, Deutsch, Englisch
@@ -90,6 +89,7 @@
   let currentWord  = null;
   let currentHoverKey = null;
   let card         = null;
+  let selectionBtn = null;
   let hoverTimer   = null;
   let closeTimer   = null;
   let cardHovered  = false;
@@ -136,7 +136,10 @@
   document.addEventListener('mouseup', () => {
     if (extensionContextDead || !extensionEnabled) return;
     const sel = window.getSelection();
-    if (!sel || sel.toString().trim() === '') return;
+    if (!sel || sel.toString().trim() === '') {
+      removeSelectionButton();
+      return;
+    }
 
     const selectedText = sel.toString().trim();
     if (!selectedText) return;
@@ -163,6 +166,7 @@
 
   // ── Selection Card mit Button (für Select-Modus) ────────────────
   function showSelectionCard(text, rect, range, scriptType) {
+    removeSelectionButton();
     clearHighlight();
     applyHighlight(range);
 
@@ -203,16 +207,24 @@
       z-index: 2147483646;
       transition: background 0.1s;
     `;
+    selectionBtn = btn;
 
     btn.onmouseover = () => { btn.style.background = '#b8a9e8'; };
     btn.onmouseout = () => { btn.style.background = '#cba6f7'; };
 
-    btn.onclick = () => {
+    btn.addEventListener('mousedown', e => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+
+    btn.onclick = e => {
+      e.preventDefault();
+      e.stopPropagation();
       currentWord = text;
       currentHoverKey = `selection:${text}`;
       chatHistory = [];
       
-      btn.remove();
+      removeSelectionButton();
       openCard(rect.left + rect.width / 2, rect.top, text);
       
       void sendRuntimeMessage({
@@ -231,15 +243,33 @@
     };
 
     document.body.appendChild(btn);
-    
-    const autoRemoveBtn = () => {
-      if (btn.parentNode) btn.remove();
+
+    // Listener erst im nächsten Tick aktivieren, damit der Click,
+    // der die Textauswahl beendet hat, den Button nicht sofort entfernt.
+    const outsideClickHandler = ev => {
+      if (!selectionBtn) return;
+      if (selectionBtn.contains(ev.target)) return;
+      removeSelectionButton();
+      document.removeEventListener('click', outsideClickHandler, true);
     };
-    document.addEventListener('click', autoRemoveBtn, { once: true });
+
     setTimeout(() => {
-      document.removeEventListener('click', autoRemoveBtn);
-      autoRemoveBtn();
+      if (!selectionBtn) return;
+      document.addEventListener('click', outsideClickHandler, true);
+    }, 0);
+
+    setTimeout(() => {
+      if (!selectionBtn) return;
+      removeSelectionButton();
+      document.removeEventListener('click', outsideClickHandler, true);
     }, 5000);
+  }
+
+  function removeSelectionButton() {
+    if (selectionBtn && selectionBtn.parentNode) {
+      selectionBtn.remove();
+    }
+    selectionBtn = null;
   }
   // ── Hover verarbeiten ──────────────────────────────────────────
   async function processHover(x, y) {
