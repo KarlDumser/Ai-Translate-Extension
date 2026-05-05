@@ -250,25 +250,25 @@
   if (stored.displayLanguage) displayLanguage.value   = stored.displayLanguage;
 
   // Defaults setzen
-  if (!sourceLanguage.value)  sourceLanguage.value  = 'en';
-  if (!translationMode.value) translationMode.value = 'hover';
-  if (!targetLanguage.value)  targetLanguage.value  = 'de';
+  if (!sourceLanguage.value)  sourceLanguage.value  = 'auto';
+  if (!translationMode.value) translationMode.value = 'select';
+  if (!targetLanguage.value)  targetLanguage.value  = navigator.language.startsWith('de') ? 'de' : 'en';
   if (!extensionEnabled.value) extensionEnabled.value = 'true';
   if (!debugMode.value) debugMode.value = 'false';
-  if (!displayLanguage.value) displayLanguage.value = 'en';
+  if (!displayLanguage.value) {
+    const sysLang = navigator.language.startsWith('de') ? 'de' : navigator.language.startsWith('ja') ? 'ja' : 'en';
+    displayLanguage.value = sysLang;
+  }
 
-  // "Auto-Erkennung" Option nur anzeigen wenn OpenAI API Key
+  // "Auto-Erkennung" Option wird jetzt standardmäßig genutzt (Heuristik oder OpenAI)
   function updateSourceLanguageOptions() {
-    hasOpenAIKey = apiInput.value.trim().length > 0;
     const autoOption = sourceLanguage.querySelector('option[value="auto"]');
-    
-    if (hasOpenAIKey && !autoOption) {
+    if (!autoOption) {
       const opt = document.createElement('option');
       opt.value = 'auto';
       opt.textContent = t('sourceAuto');
-      sourceLanguage.appendChild(opt);
-    } else if (!hasOpenAIKey && autoOption) {
-      autoOption.remove();
+      // Set to auto option if the extension starts without one in HTML
+      sourceLanguage.insertBefore(opt, sourceLanguage.firstChild);
     }
   }
 

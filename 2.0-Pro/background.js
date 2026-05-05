@@ -25,6 +25,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       .catch(err => sendResponse({ answer: '⛔ ' + err.message }));
     return true;
   }
+
+  if (msg.type === 'translate_sentence') {
+    translateSentence(msg.text, msg.sourceLanguage, msg.targetLanguage)
+      .then(sendResponse)
+      .catch(err => sendResponse({ error: err.message, found: false }));
+    return true;
+  }
 });
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -68,10 +75,10 @@ async function lookupWord(word, focusIndex, scriptType, targetLanguage) {
   
   // Deutsch/Englisch: Übersetzung verwenden
   const settings = await chrome.storage.sync.get({ 
-    sourceLanguage: 'en',
+    sourceLanguage: 'auto',
     apiKey: '',
   });
-  const sourceLanguage = settings.sourceLanguage || 'en';
+  const sourceLanguage = settings.sourceLanguage || 'auto';
   const apiKey = settings.apiKey || '';
   const target = targetLanguage || 'en';
   
@@ -95,8 +102,8 @@ async function lookupWord(word, focusIndex, scriptType, targetLanguage) {
 }
 
 // Japanisch-Lookup via Jisho
-async function lookupJapanese(word, focusIndex, scriptType) {
-  const cacheKey = `${word}|${focusIndex}|${scriptType}`;
+async function lookupJapanese(word, focusIndex, scriptType, targetLanguage) {
+  const cacheKey = `${word}|${focusIndex}|${scriptType}|${targetLanguage||'de'}`;
   const cachedResult = getFreshCache(lookupResultCache, cacheKey);
   if (cachedResult) return cachedResult;
 
@@ -138,7 +145,7 @@ async function lookupJapanese(word, focusIndex, scriptType) {
   }
 
   if (bestExact) {
-    const result = await formatLookupResult(bestExact.entry, bestExact.candidate);
+    const result = await formatLookupResult(bestExact.entry, bestExact.candidate, targetLanguage);
     setCache(lookupResultCache, cacheKey, result);
     return result;
   }
@@ -149,7 +156,7 @@ async function lookupJapanese(word, focusIndex, scriptType) {
     return result;
   }
 
-  const result = await formatLookupResult(fallbackEntry, fallbackCandidate);
+  const result = await formatLookupResult(fallbackEntry, fallbackCandidate, targetLanguage);
   setCache(lookupResultCache, cacheKey, result);
   return result;
 }
@@ -161,9 +168,14 @@ async function lookupTranslation(word, sourceLang, targetLanguage) {
   if (cachedResult) return cachedResult;
 
   // Zielsprachen bestimmen
-  const targetLangs = (targetLanguage && targetLanguage !== sourceLang)
-    ? [targetLanguage] 
-    : (sourceLang === 'de' ? ['en', 'ja'] : ['de', 'ja']);
+  // Wenn der erkannte/gewählte Text nicht der eingestellten Zielsprache entspricht,
+  // übersetzen wir in die Zielsprache. 
+  // Entspricht er der Zielsprache (z.B. Zielsprache=de, erkannter Text=de),
+  // dann übersetzen wir in die Gegenrichtung (z.B. 'ja').
+  let targetLangs = [targetLanguage || 'de'];
+  if (sourceLang === targetLanguage || sourceLang === (targetLanguage || 'de')) {
+    targetLangs = (sourceLang === 'ja') ? ['de', 'en'] : ['ja'];
+  }
   
   // Alle Übersetzungen parallel starten
   const settled = await Promise.allSettled(
@@ -250,7 +262,7 @@ async function searchJisho(word) {
   }
 }
 
-async function formatLookupResult(entry, fallbackWord) {
+async function formatLookupResult(entry, fallbackWord, targetLanguage) {
   const jpEntry = entry.japanese?.[0] ?? {};
   const senses  = entry.senses  ?? [];
 
@@ -270,8 +282,9 @@ async function formatLookupResult(entry, fallbackWord) {
   // Englische Bedeutungen (alle Senses, max. 5)
   const english = senses.flatMap(s => s.english_definitions ?? []).slice(0, 5);
 
-  // Deutsche Übersetzung
-  const german = english.length ? await translateToGerman(english.slice(0, 3)) : [];
+  // Deutsche Übersetzung (jetzt dynamische Zielsprache, Property heißt historisch 'german')
+  const tl = targetLanguage || 'de';
+  const german = english.length ? await translateFromEnglish(english.slice(0, 3), tl) : [];
 
   // Beispielsatz – Jisho-API liefert keine Beispiele direkt;
   // wir überspringen das für eine saubere Implementierung.
@@ -371,8 +384,9 @@ function scoreCandidate(candidate, focusIndex, scriptType, sourceLength, start =
   let score = 0;
 
   if (scriptType === 'kanji') {
-    const preferred = { 2: 60, 3: 48, 1: 34, 4: 24, 5: 16, 6: 10 };
-    score += preferred[len] ?? Math.max(0, 8 - len);
+    // Bevorzuge längere Matches, die näher an der Gesamtlänge (sourceLength) sind
+    const lengthScore = len === sourceLength ? 80 : len * 10;
+    score += lengthScore;
   } else {
     score += len === sourceLength ? 60 : Math.max(0, 40 - (sourceLength - len) * 6);
   }
@@ -463,13 +477,101 @@ async function performTranslation(text, sourceLang, targetLang) {
   throw new Error(`Keine Übersetzung für ${sourceLang}→${targetLang} verfügbar`);
 }
 
-async function translateToGerman(definitions) {
+async function translateFromEnglish(definitions, targetLang) {
   const text = definitions.join('; ');
   try {
-    const result = await performTranslation(text, 'en', 'de');
+    // Falls targetLang 'en' ist, brauchen wir nicht eigens übersetzen
+    if (targetLang === 'en') return definitions;
+    const result = await performTranslation(text, 'en', targetLang);
     return result;
   } catch (e) {
     return [];
+  }
+}
+
+// ── Satz-Übersetzung ──────────────────────────────────────────────
+async function translateSentence(text, sourceLang, targetLanguage) {
+  const { apiKey } = await chrome.storage.sync.get('apiKey');
+  const target = targetLanguage || 'de';
+
+  if (!apiKey) {
+    // Ohne API-Key einfache Übersetzung ohne Word-Breakdown
+    const tl = target;
+    const sl = sourceLang === 'auto' ? '' : sourceLang;
+    try {
+      const translated = await performTranslation(text, sl || 'en', tl); // Heuristik falls sl='' in performTranslation
+      return { 
+        found: true, 
+        isSentence: true, 
+        originalText: text, 
+        translation: typeof translated === 'string' ? translated : translated.join(' '),
+        words: []
+      };
+    } catch(e) {
+      return { found: false, error: e.message };
+    }
+  }
+
+  // Mit OpenAI: Satz aufbrechen und mappen
+  const systemPrompt = `Du bist ein Übersetzer. Übersetze den Text natürlich nach "${target}".
+Liefere AUSSCHLIESSLICH ein JSON-Objekt.
+Format:
+{
+  "translation": "Der komplette fließend übersetzte Satz",
+  "words": [
+    {
+      "o": "Originalwort",
+      "t": "Exakter passender String aus 'translation' (oder leer)",
+      "e": "Kurze Bedeutung / Grundform"
+    }
+  ]
+}
+Regeln:
+- WICHTIG: KEINE Zeichen weglassen! Satzzeichen, Leerzeichen, Klammern wie 「 」, 【 】 müssen in 'o' vorkommen (als eigenes Wort oder angehängt).
+- Alle 'o' aneinandergereiht MÜSSEN zu 100% exakt den Quelltext ergeben.
+- t: Welcher Teil der Übersetzung gehört dazu? (Muss exakt als Substring in "translation" vorkommen, sonst leer)
+- e: Ganz kurze Wort-Erklärung (max 3 Wörter).`;
+
+  const messages = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: text }
+  ];
+
+  const r = await fetch('https://api.openai.com/v1/chat/completions', {
+    method:  'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      messages,
+      response_format: { type: "json_object" },
+      temperature: 0.1,
+    }),
+  });
+
+  if (!r.ok) {
+    const errBody = await r.text().catch(() => '');
+    throw new Error(`OpenAI-Fehler ${r.status}: ${errBody.slice(0, 120)}`);
+  }
+
+  const d = await r.json();
+  const answer = d.choices?.[0]?.message?.content?.trim();
+  
+  if (!answer) throw new Error("Keine Antwort von OpenAI");
+  
+  try {
+    const json = JSON.parse(answer);
+    return {
+      found: true,
+      isSentence: true,
+      originalText: text,
+      translation: json.translation,
+      words: json.words || []
+    };
+  } catch (e) {
+    throw new Error("Fehler beim Parsen des KI-Ergebnisses");
   }
 }
 

@@ -51,9 +51,11 @@
     },
   };
 
-  let displayLanguage = 'en';
-  let sourceLanguage = 'en';
-  let translationMode = 'hover';
+  const sysLang = navigator.language.startsWith('de') ? 'de' : navigator.language.startsWith('ja') ? 'ja' : 'en';
+
+  let displayLanguage = sysLang;
+  let sourceLanguage = 'auto';
+  let translationMode = 'select';
   let targetLanguage = 'de';
   let debugMode = false;
   let extensionEnabled = true;
@@ -61,9 +63,9 @@
   async function loadSettings() {
     try {
       const settings = await chrome.storage.sync.get({
-        displayLanguage: 'en',
-        sourceLanguage: 'en',
-        translationMode: 'hover',
+        displayLanguage: sysLang,
+        sourceLanguage: 'auto',
+        translationMode: 'select',
         targetLanguage: 'de',
         debugMode: false,
         extensionEnabled: true,
@@ -184,6 +186,7 @@
   document.addEventListener('mouseup', e => {
     if (extensionContextDead || !extensionEnabled) return;
     if (card && card.contains(e.target)) return;
+    if (selectionBtn && selectionBtn.contains(e.target)) return;
 
     const sel = window.getSelection();
     if (!sel || sel.toString().trim() === '') {
@@ -234,7 +237,7 @@
     clearHighlight();
     applyHighlight(range);
 
-    const btnWidth = 60;
+    const btnWidth = 100;
     const btnHeight = 32;
     const gap = 8;
     let btnLeft = rect.left + rect.width / 2 - btnWidth / 2;
@@ -250,9 +253,8 @@
       btnTop = rect.top - btnHeight - gap;
     }
 
-    const btn = document.createElement('button');
-    btn.textContent = '🔍';
-    btn.style.cssText = `
+    const container = document.createElement('div');
+    container.style.cssText = `
       all: unset;
       position: fixed;
       left: ${btnLeft}px;
@@ -264,31 +266,68 @@
       border-radius: 8px;
       font-size: 16px;
       font-weight: 700;
+      display: flex;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      z-index: 2147483646;
+      overflow: hidden;
+    `;
+    selectionBtn = container;
+
+    const btnWord = document.createElement('div');
+    btnWord.textContent = 'Abc';
+    btnWord.style.cssText = `
+      flex: 1;
       text-align: center;
       line-height: ${btnHeight}px;
       cursor: pointer;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-      z-index: 2147483646;
       transition: background 0.1s;
     `;
-    selectionBtn = btn;
+    btnWord.onmouseover = () => { btnWord.style.background = '#b8a9e8'; };
+    btnWord.onmouseout = () => { btnWord.style.background = 'transparent'; };
+    btnWord.onclick = e => {
+      e.preventDefault();
+      e.stopPropagation();
+      removeSelectionButton();
+      // Handle Word Translation logic here
+      void processSelection(text, rect, range, scriptType, false);
+    };
 
-    btn.onmouseover = () => { btn.style.background = '#b8a9e8'; };
-    btn.onmouseout = () => { btn.style.background = '#cba6f7'; };
+    const divider = document.createElement('div');
+    divider.style.cssText = `
+      width: 1px;
+      background: #a689cc;
+      height: 100%;
+    `;
 
-    btn.addEventListener('mousedown', e => {
+    const btnSentence = document.createElement('div');
+    btnSentence.textContent = '¶';
+    btnSentence.style.cssText = `
+      flex: 1;
+      text-align: center;
+      line-height: ${btnHeight}px;
+      cursor: pointer;
+      transition: background 0.1s;
+    `;
+    btnSentence.onmouseover = () => { btnSentence.style.background = '#b8a9e8'; };
+    btnSentence.onmouseout = () => { btnSentence.style.background = 'transparent'; };
+    btnSentence.onclick = e => {
+      e.preventDefault();
+      e.stopPropagation();
+      removeSelectionButton();
+      // Handle Sentence logic here
+      void processSelection(text, rect, range, scriptType, true);
+    };
+
+    container.appendChild(btnWord);
+    container.appendChild(divider);
+    container.appendChild(btnSentence);
+
+    container.addEventListener('mousedown', e => {
       e.preventDefault();
       e.stopPropagation();
     });
 
-    btn.onclick = e => {
-      e.preventDefault();
-      e.stopPropagation();
-      removeSelectionButton();
-      void processSelection(text, rect, range, scriptType);
-    };
-
-    document.body.appendChild(btn);
+    document.body.appendChild(container);
 
     // Listener erst im nächsten Tick aktivieren, damit der Click,
     // der die Textauswahl beendet hat, den Button nicht sofort entfernt.
@@ -296,19 +335,19 @@
       if (!selectionBtn) return;
       if (selectionBtn.contains(ev.target)) return;
       removeSelectionButton();
-      document.removeEventListener('click', outsideClickHandler, true);
+      document.removeEventListener('mousedown', outsideClickHandler, true);
     };
 
     setTimeout(() => {
       if (!selectionBtn) return;
-      document.addEventListener('click', outsideClickHandler, true);
-    }, 0);
+      document.addEventListener('mousedown', outsideClickHandler, true);
+    }, 10);
 
     setTimeout(() => {
       if (!selectionBtn) return;
       removeSelectionButton();
-      document.removeEventListener('click', outsideClickHandler, true);
-    }, 5000);
+      document.removeEventListener('mousedown', outsideClickHandler, true);
+    }, 4000);
   }
 
   function removeSelectionButton() {
@@ -353,7 +392,7 @@
   }
 
   // ── Markiertes Wort verarbeiten (User-Markierung) ───────────────
-  async function processSelection(text, rect, range, scriptType) {
+  async function processSelection(text, rect, range, scriptType, forceSentence = null) {
     try {
       if (extensionContextDead || !extensionEnabled) return;
 
@@ -365,13 +404,22 @@
       chatHistory = [];
       cardFromSelection = true;
 
-      const data = await sendRuntimeMessage({
+      // Satz oder Wort?
+      const isSentence = forceSentence !== null ? forceSentence : (text.trim().includes(' ') && text.trim().split(/\s+/).length > 1 || text.length > 15);
+
+      const data = await sendRuntimeMessage(isSentence ? {
+        type: 'translate_sentence',
+        text,
+        sourceLanguage,
+        targetLanguage
+      } : {
         type: 'lookup',
         word: text,
         focusIndex: 0,
         scriptType,
         targetLanguage,
       });
+
       dbg(`selection lookup ok: ${text}`);
       fillCard(data);
     } catch (err) {
@@ -629,8 +677,73 @@
 
     let html = '';
 
+    // Für Sätze (AI Breakdown)
+    if (data.isSentence) {
+      if (!data.words || data.words.length === 0) {
+         html += `<div style="font-size:15px;color:#cdd6f4;">${escHtml(data.translation)}</div>`;
+      } else {
+         // Wir bauen zwei Container: Original und Übersetzung, beide in spans aufgeteilt
+         // Sowie eine Erklärungs-Box
+         html += `<div style="margin-bottom:8px;font-size:16px;color:#cba6f7;line-height:1.6;" id="jpde-sentence-orig">`;
+         data.words.forEach((w, i) => {
+           html += `<span class="jpde-w" data-idx="${i}" style="cursor:pointer;border-radius:3px;padding:0 1px;transition:background 0.15s;">${escHtml(w.o || w.original || '')}</span>`;
+         });
+         html += `</div>`;
+
+         html += `<div style="margin-bottom:12px;font-size:15px;color:#cdd6f4;line-height:1.6;" id="jpde-sentence-trans">`;
+         data.words.forEach((w, i) => {
+           const tr = w.t || w.translationPart;
+           if (tr) {
+             html += `<span class="jpde-t" data-idx="${i}" style="border-radius:3px;padding:0 1px;transition:background 0.15s;">${escHtml(tr)}</span> `;
+           }
+         });
+         html += `<div style="margin-top:6px;font-size:13px;color:#a6adc8;">${escHtml(data.translation)}</div>`;
+         html += `</div>`;
+
+         html += `<div id="jpde-sentence-detail" style="border-top:1px solid #313244;padding-top:8px;min-height:30px;font-size:13px;color:#a6adc8;">
+           <span style="color:#585b70;">(Bewege die Maus über ein markiertes Wort für Details)</span>
+         </div>`;
+
+         // Hover events anhängen (wird unten nach body.innerHTML gemacht)
+         setTimeout(() => {
+           const origContainer = card.querySelector('#jpde-sentence-orig');
+           const detailBox = card.querySelector('#jpde-sentence-detail');
+           if (!origContainer || !detailBox) return;
+
+           const spansO = card.querySelectorAll('.jpde-w');
+           const spansT = card.querySelectorAll('.jpde-t');
+
+           spansO.forEach(span => {
+             span.addEventListener('mouseenter', () => {
+               const idx = span.getAttribute('data-idx');
+               span.style.background = 'rgba(203, 166, 247, 0.25)';
+               spansT.forEach(tspan => {
+                 if (tspan.getAttribute('data-idx') === idx) {
+                   tspan.style.background = 'rgba(166, 227, 161, 0.25)';
+                 }
+               });
+               const wData = data.words[idx];
+               const orig = wData.o || wData.original || '';
+               const trans = wData.t || wData.translationPart || wData.translated || '';
+               const expl = wData.e || wData.explanation || '';
+               detailBox.innerHTML = `<span style="color:#cba6f7;font-weight:bold;">${escHtml(orig)}</span>: ${escHtml(trans)} <br><span style="font-size:12px;color:#89b4fa;">${escHtml(expl)}</span>`;
+             });
+             span.addEventListener('mouseleave', () => {
+               const idx = span.getAttribute('data-idx');
+               span.style.background = 'transparent';
+               spansT.forEach(tspan => {
+                 if (tspan.getAttribute('data-idx') === idx) {
+                   tspan.style.background = 'transparent';
+                 }
+               });
+               detailBox.innerHTML = `<span style="color:#585b70;">(Bewege die Maus über ein markiertes Wort für Details)</span>`;
+             });
+           });
+         }, 0);
+      }
+    }
     // Für Japanisch (Jisho-Format)
-    if (data.kana) {
+    else if (data.kana) {
       // Kana anzeigen (aber nicht das Wort nochmal - das ist bereits im Title)
       if (data.kana && data.kana !== data.word) {
         html += `
