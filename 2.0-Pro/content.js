@@ -343,11 +343,12 @@
       document.addEventListener('mousedown', outsideClickHandler, true);
     }, 10);
 
-    setTimeout(() => {
-      if (!selectionBtn) return;
-      removeSelectionButton();
-      document.removeEventListener('mousedown', outsideClickHandler, true);
-    }, 4000);
+    // Automatisches Entfernen des Selection-Buttons nach 4 Sekunden deaktiviert:
+    // setTimeout(() => {
+    //   if (!selectionBtn) return;
+    //   removeSelectionButton();
+    //   document.removeEventListener('mousedown', outsideClickHandler, true);
+    // }, 4000);
   }
 
   function removeSelectionButton() {
@@ -407,6 +408,22 @@
       // Satz oder Wort?
       const isSentence = forceSentence !== null ? forceSentence : (text.trim().includes(' ') && text.trim().split(/\s+/).length > 1 || text.length > 15);
 
+      // Bei "Wort" (forceSentence === false) und langem Text reinigen wir den Anfang von Nicht-Wort-Zeichen (z.B. Klammern)
+      let wordText = text;
+      if (forceSentence === false) {
+        wordText = wordText.replace(/^[\s「『【（(.,!?！？。、]+/, '');
+        // scriptType für den bereinigten Text neu bestimmen, damit Jisho aktiviert wird
+        if (wordText.length > 0 && scriptOf(wordText[0]) !== 'none') {
+          scriptType = scriptOf(wordText[0]);
+        } else {
+          // Ist kein Japanisch (Latin), nimm einfach das erste Wort
+          const match = wordText.match(/^([a-zA-ZäöüÄÖÜß]+)/);
+          if (match) {
+            wordText = match[1];
+          }
+        }
+      }
+
       const data = await sendRuntimeMessage(isSentence ? {
         type: 'translate_sentence',
         text,
@@ -414,7 +431,7 @@
         targetLanguage
       } : {
         type: 'lookup',
-        word: text,
+        word: wordText,
         focusIndex: 0,
         scriptType,
         targetLanguage,
@@ -691,13 +708,28 @@
          html += `</div>`;
 
          html += `<div style="margin-bottom:12px;font-size:15px;color:#cdd6f4;line-height:1.6;" id="jpde-sentence-trans">`;
+         // Nur den ordentlichen deutschen Text darstellen, aber die passenden Übersetzungsteile als Spans markieren
+         let taggedTranslation = escHtml(data.translation);
+         
+         // Alle w.t Strings suchen und markieren, dabei aufpassen, dass wir nichts doppelt markieren.
+         // Um HTML-Bugs zu vermeiden, ersetzen wir sie durch temporäre Platzhalter
+         let tempMap = {};
          data.words.forEach((w, i) => {
-           const tr = w.t || w.translationPart;
-           if (tr) {
-             html += `<span class="jpde-t" data-idx="${i}" style="border-radius:3px;padding:0 1px;transition:background 0.15s;">${escHtml(tr)}</span> `;
+           let tr = w.t || w.translationPart;
+           if (tr && tr.trim().length > 0) {
+             let escapedTr = escHtml(tr);
+             // Nur das erste Vorkommen ersetzen, das noch nicht markiert wurde
+             let placeholder = `__JPDE_TMP_${i}__`;
+             tempMap[placeholder] = `<span class="jpde-t" data-idx="${i}" style="cursor:pointer;border-radius:3px;padding:0 1px;transition:background 0.15s;">${escapedTr}</span>`;
+             taggedTranslation = taggedTranslation.replace(escapedTr, placeholder);
            }
          });
-         html += `<div style="margin-top:6px;font-size:13px;color:#a6adc8;">${escHtml(data.translation)}</div>`;
+         // Platzhalter wieder zurücktauschen
+         for (let key in tempMap) {
+             taggedTranslation = taggedTranslation.replace(key, tempMap[key]);
+         }
+         
+         html += taggedTranslation;
          html += `</div>`;
 
          html += `<div id="jpde-sentence-detail" style="border-top:1px solid #313244;padding-top:8px;min-height:30px;font-size:13px;color:#a6adc8;">
@@ -724,9 +756,10 @@
                });
                const wData = data.words[idx];
                const orig = wData.o || wData.original || '';
+               const kana = wData.k ? ` <span style="color:#f38ba8;font-size:12px;">【${escHtml(wData.k)}】</span>` : '';
                const trans = wData.t || wData.translationPart || wData.translated || '';
                const expl = wData.e || wData.explanation || '';
-               detailBox.innerHTML = `<span style="color:#cba6f7;font-weight:bold;">${escHtml(orig)}</span>: ${escHtml(trans)} <br><span style="font-size:12px;color:#89b4fa;">${escHtml(expl)}</span>`;
+               detailBox.innerHTML = `<span style="color:#cba6f7;font-weight:bold;">${escHtml(orig)}</span>${kana}: ${escHtml(trans)} <br><span style="font-size:12px;color:#89b4fa;">${escHtml(expl)}</span>`;
              });
              span.addEventListener('mouseleave', () => {
                const idx = span.getAttribute('data-idx');
@@ -734,6 +767,35 @@
                spansT.forEach(tspan => {
                  if (tspan.getAttribute('data-idx') === idx) {
                    tspan.style.background = 'transparent';
+                 }
+               });
+               detailBox.innerHTML = `<span style="color:#585b70;">(Bewege die Maus über ein markiertes Wort für Details)</span>`;
+             });
+           });
+
+           // Gleiches für die Target-Spans (Hover auf Deutsch markiert Japanisch)
+           spansT.forEach(span => {
+             span.addEventListener('mouseenter', () => {
+               const idx = span.getAttribute('data-idx');
+               span.style.background = 'rgba(166, 227, 161, 0.25)';
+               spansO.forEach(ospan => {
+                 if (ospan.getAttribute('data-idx') === idx) {
+                   ospan.style.background = 'rgba(203, 166, 247, 0.25)';
+                 }
+               });
+               const wData = data.words[idx];
+               const orig = wData.o || wData.original || '';
+               const kana = wData.k ? ` <span style="color:#f38ba8;font-size:12px;">【${escHtml(wData.k)}】</span>` : '';
+               const trans = wData.t || wData.translationPart || wData.translated || '';
+               const expl = wData.e || wData.explanation || '';
+               detailBox.innerHTML = `<span style="color:#cba6f7;font-weight:bold;">${escHtml(orig)}</span>${kana}: ${escHtml(trans)} <br><span style="font-size:12px;color:#89b4fa;">${escHtml(expl)}</span>`;
+             });
+             span.addEventListener('mouseleave', () => {
+               const idx = span.getAttribute('data-idx');
+               span.style.background = 'transparent';
+               spansO.forEach(ospan => {
+                 if (ospan.getAttribute('data-idx') === idx) {
+                   ospan.style.background = 'transparent';
                  }
                });
                detailBox.innerHTML = `<span style="color:#585b70;">(Bewege die Maus über ein markiertes Wort für Details)</span>`;
@@ -904,8 +966,10 @@
 
   // ── Close-Logik ────────────────────────────────────────────────
   function scheduleClose() {
-    clearTimeout(closeTimer);
-    closeTimer = setTimeout(() => { if (!cardHovered) closeCard(); }, CLOSE_DELAY);
+    // Auf Wunsch des Nutzers soll sich das Popup nur noch manuell über den "Schließen"-Button schließen.
+    // Daher blockieren wir automatische Schließen-Aufrufe (wie Mouseleave oder Click-Outside).
+    // clearTimeout(closeTimer);
+    // closeTimer = setTimeout(() => { if (!cardHovered) closeCard(); }, CLOSE_DELAY);
   }
   function cancelClose()  { clearTimeout(closeTimer); }
   function forceClose() {

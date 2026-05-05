@@ -521,16 +521,17 @@ Format:
   "words": [
     {
       "o": "Originalwort",
-      "t": "Exakter passender String aus 'translation' (oder leer)",
-      "e": "Kurze Bedeutung / Grundform"
+      "k": "Die Kana-Lesung (Hiragana/Katakana), falls 'o' Kanji enthält (sonst leer)",
+      "t": "Die entsprechende Übersetzung im Deutschen (nur dieser Teil! Wenn es Partikel wie は, の, が, と, へ etc. ist, die nicht direkt übersetzt werden, ODER wenn das Wort keine Entsprechung hat, lass 't' leer!)",
+      "e": "Kurze Bedeutung / Grundform (z.B. Partikel-Erklärung, Grammatik, oder Name des Satzzeichens wie 'やじるし' / 'Komma')"
     }
   ]
 }
 Regeln:
-- WICHTIG: KEINE Zeichen weglassen! Satzzeichen, Leerzeichen, Klammern wie 「 」, 【 】 müssen in 'o' vorkommen (als eigenes Wort oder angehängt).
+- WICHTIG: KEINE Zeichen weglassen! Satzzeichen, Leerzeichen, Klammern wie 「 」, 【 】 müssen in 'o' vorkommen als eigenes Wort. Sie sollen in 'e' benannt/erklärt werden (z.B. "Klammer", "Komma").
 - Alle 'o' aneinandergereiht MÜSSEN zu 100% exakt den Quelltext ergeben.
-- t: Welcher Teil der Übersetzung gehört dazu? (Muss exakt als Substring in "translation" vorkommen, sonst leer)
-- e: Ganz kurze Wort-Erklärung (max 3 Wörter).`;
+- t: Welcher lexikalische Teil der Übersetzung entspricht 'o'? (Wenn nicht vorhanden oder reiner Grammatikpartikel oder Satzzeichen, lass es leer: "")
+- e: Ganz kurze Wort-Erklärung (max 3 Wörter, z.B. "Thema-Partikel", "Subjekt-Partikel").`;
 
   const messages = [
     { role: 'system', content: systemPrompt },
